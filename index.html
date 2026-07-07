@@ -573,12 +573,13 @@
 
 <script>
 /* ════════════════════ CONFIG ════════════════════ */
-const SHEET_ID = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQPCbJtRwK7s4hnptzSzFFBj5wxcuWG5kSKox1FsyooHnqMq3PjB78cNToF8wIbjkH41hObzm2mDQLt/pub?gid=1860124459&single=true&output=csv';
+const SHEET_ID = '2PACX-1vT5C4qgojx2KcFmfVFhNJ5Z0tSjNAU44o8RP9P8mqizqB3FshW0gRRfI5LxYVmS_hLH5qQjXLHWuSZd';
 const CSV_DIRECT = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?output=csv`;
 const SHEET_HTML = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pubhtml`;
 
 const SECTOR_LIST = ['การคมนาคม','การค้าและการลงทุน','พลังงาน','การท่องเที่ยว','สาธารณสุข','สิ่งแวดล้อม','การเกษตร','การพัฒนาเมือง'];
 const ISSUE_LIST = ['นวัตกรรม','ความเสมอภาคทางเพศและการมีส่วนร่วม','การย้ายถิ่นของแรงงาน','รัฐบาลท้องถิ่น','ความร่วมมือด้านดิจิทัล','สภาธุรกิจ แผนงาน GMS','เครือข่ายองค์ความรู้ GMS','หุ้นส่วนเพื่อการพัฒนา','เลขานุการชาติ'];
+const YEAR_OPTIONS = ['ทั้งหมด','2567','2568','2569'];
 
 let allRows = [];
 let chartInstances = {};
@@ -627,25 +628,6 @@ function fmtBudget(v) {
   return String(n);
 }
 function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-
-/* ════════════════════ ITEM NAME RESOLUTION (Project / RIF / MOU / Meeting) ════════════════════ */
-function getRowType(row) {
-  if (!row) return '';
-  const typeField = findField(row, ['Type','ประเภท','Category','type']);
-  return typeField ? (row[typeField]||'').toLowerCase().trim() : '';
-}
-function resolveItemName(row) {
-  if (!row) return '';
-  const t = getRowType(row);
-  let f = null;
-  if (t.includes('rif')) f = findField(row, ['RIF_Name','ชื่อโครงการ RIF','ชื่อโครงการRIF']);
-  else if (t.includes('mou')) f = findField(row, ['MOU_Name','ชื่อ MOU','ชื่อMOU']);
-  else if (t.includes('meeting')) f = findField(row, ['Meeting_Name','ชื่อการประชุม']);
-  else if (t.includes('project')) f = findField(row, ['Project_Name','ชื่อโครงการ']);
-  else if (t.includes('strategic') || t.includes('plan')) f = findField(row, ['Strategic_Plan_Name','ชื่อแผนยุทธศาสตร์','Plan_Name']);
-  if (!f) f = findField(row, ['Project_Name','ชื่อโครงการ','RIF_Name','ชื่อโครงการ RIF','MOU_Name','ชื่อ MOU','Meeting_Name','ชื่อการประชุม','Strategic_Plan_Name','ชื่อแผนยุทธศาสตร์','Name','Title','ชื่อ']);
-  return f ? (row[f] || '') : '';
-}
 
 /* ════════════════════ CSV PARSER ════════════════════ */
 function parseCSV(text) {
@@ -756,25 +738,21 @@ async function loadData() {
   renderAll();
 }
 
-/* ════════════════════ YEAR FILTER (Column B "ปี (พ.ศ.)" only, per-section independent dropdowns) ════════════════════ */
-function getYearField() {
-  let f = findField(allRows[0], ['ปี (พ.ศ.)', 'ปีพ.ศ.', 'ปี(พ.ศ.)', 'ปี']);
-  if (f) return f;
-  // Fallback: strictly use column B (2nd column) of the sheet
-  const keys = Object.keys(allRows[0] || {});
-  return keys[1] || null;
-}
+/* ════════════════════ YEAR FILTER (per-section, independent dropdowns) ════════════════════ */
+function getYearField() { return findField(allRows[0], ['ปี','Year','พ.ศ.','BuddhistYear']); }
 function getAvailableYears() {
   const yf = getYearField();
-  if (!yf || !allRows.length) return ['ทั้งหมด'];
-  const present = [...new Set(allRows.map(r => String(r[yf]||'').trim()).filter(Boolean))];
-  present.sort((a,b) => a.localeCompare(b, 'th'));
-  return ['ทั้งหมด', ...present];
+  let years = YEAR_OPTIONS.slice();
+  if (yf) {
+    const present = [...new Set(allRows.map(r => r[yf]).filter(Boolean))];
+    years = ['ทั้งหมด', ...[...new Set([...years.slice(1), ...present])].sort()];
+  }
+  return years;
 }
 function yearDropdownHtml(id, onchangeFn, currentVal) {
   const years = getAvailableYears();
   return `<div class="year-dropdown-wrap">
-    <span class="year-dropdown-label">📅 กรองตามปี (พ.ศ.):</span>
+    <span class="year-dropdown-label">📅 กรองตามปี:</span>
     <select class="year-dropdown-select" id="${id}" onchange="${onchangeFn}(this.value)">
       ${years.map(y => `<option value="${escHtml(y)}" ${y===currentVal?'selected':''}>${y==='ทั้งหมด'?'ทั้งหมด':'พ.ศ. '+y}</option>`).join('')}
     </select>
@@ -887,33 +865,32 @@ function renderSummary(rows) {
   `;
 }
 
-/* ════════════════════ SECTION 2: WORKING GROUPS (always show all defined sectors/issues) ════════════════════ */
+/* ════════════════════ SECTION 2: WORKING GROUPS ════════════════════ */
 function renderWorkingGroups(rows) {
   const container = document.getElementById('wgContent');
   const wgField = findField(rows[0], ['Working_Group','WorkingGroup','คณะทำงาน','WG','Branch','Sector','สาขา','สาขาความร่วมมือ']);
 
+  if (!wgField) { container.innerHTML = yearDropdownHtml('yearSelect2', 'setYear2', currentYear2) + renderWGDetail(rows, 'รายการทั้งหมด'); return; }
+
   const groups = {};
-  if (wgField) {
-    rows.forEach(r => { const wg = (r[wgField]||'').trim(); if (!wg) return; if (!groups[wg]) groups[wg] = []; groups[wg].push(r); });
-  }
+  rows.forEach(r => { const wg = r[wgField] || 'ไม่ระบุ'; if (!groups[wg]) groups[wg] = []; groups[wg].push(r); });
+  const wgNames = Object.keys(groups);
+  if (wgNames.length === 0) { container.innerHTML=yearDropdownHtml('yearSelect2', 'setYear2', currentYear2) + '<div class="no-data">ไม่พบข้อมูลในปีที่เลือก</div>'; return; }
 
-  function findGroupRows(fixedName) {
-    if (groups[fixedName]) return groups[fixedName];
-    const key = Object.keys(groups).find(w => w.includes(fixedName) || fixedName.includes(w));
-    return key ? groups[key] : [];
-  }
-
-  const sectorEntries = SECTOR_LIST.map(name => ({ name, rows: findGroupRows(name) }));
-  const issueEntries = ISSUE_LIST.map(name => ({ name, rows: findGroupRows(name) }));
+  const sectorNames = SECTOR_LIST.filter(s => wgNames.some(w => w.includes(s) || s.includes(w))).map(s => wgNames.find(w => w.includes(s) || s.includes(w)));
+  const issueNames = ISSUE_LIST.filter(s => wgNames.some(w => w.includes(s) || s.includes(w))).map(s => wgNames.find(w => w.includes(s) || s.includes(w)));
+  const otherNames = wgNames.filter(w => !sectorNames.includes(w) && !issueNames.includes(w));
 
   container.innerHTML = `
     ${yearDropdownHtml('yearSelect2', 'setYear2', currentYear2)}
     <div class="wg-kind-tabs">
-      <button class="wg-kind-tab active" onclick="switchKindTab(this,'kindpanel-sector')">📍 รายสาขา <span class="wg-kind-count">${sectorEntries.length}</span></button>
-      <button class="wg-kind-tab" onclick="switchKindTab(this,'kindpanel-issue')">🧩 รายประเด็น <span class="wg-kind-count">${issueEntries.length}</span></button>
+      <button class="wg-kind-tab active" onclick="switchKindTab(this,'kindpanel-sector')">📍 รายสาขา <span class="wg-kind-count">${sectorNames.length}</span></button>
+      <button class="wg-kind-tab" onclick="switchKindTab(this,'kindpanel-issue')">🧩 รายประเด็น <span class="wg-kind-count">${issueNames.length}</span></button>
+      ${otherNames.length ? `<button class="wg-kind-tab" onclick="switchKindTab(this,'kindpanel-other')">📁 อื่นๆ <span class="wg-kind-count">${otherNames.length}</span></button>` : ''}
     </div>
-    <div class="wg-kind-panel active" id="kindpanel-sector">${renderKindGroupFixed(sectorEntries, 'sector')}</div>
-    <div class="wg-kind-panel" id="kindpanel-issue">${renderKindGroupFixed(issueEntries, 'issue')}</div>
+    <div class="wg-kind-panel active" id="kindpanel-sector">${renderKindGroup(sectorNames, groups, 'sector')}</div>
+    <div class="wg-kind-panel" id="kindpanel-issue">${renderKindGroup(issueNames, groups, 'issue')}</div>
+    ${otherNames.length ? `<div class="wg-kind-panel" id="kindpanel-other">${renderKindGroup(otherNames, groups, 'other')}</div>` : ''}
   `;
 }
 function switchKindTab(btn, panelId) {
@@ -923,18 +900,21 @@ function switchKindTab(btn, panelId) {
   body.querySelectorAll('.wg-kind-panel').forEach(p => p.classList.remove('active'));
   document.getElementById(panelId).classList.add('active');
 }
-function renderKindGroupFixed(entries, kindKey) {
+function renderKindGroup(names, groups, kindKey) {
+  if (!names.length) return `<div class="no-data">ไม่พบข้อมูลในหมวดนี้สำหรับปีที่เลือก</div>`;
   let tabsHtml = `<div class="wg-tab-bar">`;
-  entries.forEach((e, i) => {
-    tabsHtml += `<button class="wg-tab${i===0?' active':''}" onclick="switchTab(this,'wg-panel-${kindKey}-${i}')">${escHtml(e.name)} <span style="font-size:11px;opacity:0.6">(${e.rows.length})</span></button>`;
-  });
+  names.forEach((wg, i) => { tabsHtml += `<button class="wg-tab${i===0?' active':''}" onclick="switchTab(this,'wg-panel-${kindKey}-${i}')">${escHtml(wg)} <span style="font-size:11px;opacity:0.6">(${groups[wg].length})</span></button>`; });
   tabsHtml += `</div>`;
   let contentHtml = '';
-  entries.forEach((e, i) => {
-    const body = e.rows.length ? renderWGDetail(e.rows, e.name) : `<div class="no-data" style="padding:2.5rem 1rem;font-size:14px">ไม่มีข้อมูล</div>`;
-    contentHtml += `<div class="wg-content${i===0?' active':''}" id="wg-panel-${kindKey}-${i}">${body}</div>`;
-  });
+  names.forEach((wg, i) => { contentHtml += `<div class="wg-content${i===0?' active':''}" id="wg-panel-${kindKey}-${i}">${renderWGDetail(groups[wg], wg)}</div>`; });
   return tabsHtml + contentHtml;
+}
+function switchTab(btn, panelId) {
+  const wrap = btn.closest('.wg-kind-panel');
+  wrap.querySelectorAll('.wg-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  wrap.querySelectorAll('.wg-content').forEach(p => p.classList.remove('active'));
+  document.getElementById(panelId).classList.add('active');
 }
 
 function renderWGDetail(rows, wgName) {
@@ -964,7 +944,7 @@ function renderWGDetail(rows, wgName) {
     let val = '';
     if (spec.field) { const vals = [...new Set(rows.map(r => r[spec.field]).filter(Boolean))].slice(0, 3); val = vals.join(', '); }
     if (!val && spec.fallback) val = spec.fallback;
-    basicInfoHtml += `<div class="info-row"><span class="info-row-label">${spec.icon} ${spec.label}</span><span class="info-row-value">${escHtml(val) || '<span style="color:var(--text-muted)">ไม่มีข้อมูล</span>'}</span></div>`;
+    basicInfoHtml += `<div class="info-row"><span class="info-row-label">${spec.icon} ${spec.label}</span><span class="info-row-value">${escHtml(val) || '<span style="color:var(--text-muted)">ไม่ระบุ</span>'}</span></div>`;
   });
   basicInfoHtml += `</div></div>`;
 
@@ -1001,13 +981,13 @@ function renderWGDetail(rows, wgName) {
   let stratSummaryHtml = `<div class="info-card"><div class="info-card-header"><div class="info-card-icon">🎯</div><div class="info-card-title">สรุปแผนยุทธศาสตร์ประจำสาขา</div></div><div class="info-card-body">`;
   if (strats.length) {
     const s = strats[0];
-    stratSummaryHtml += `<div class="info-row"><span class="info-row-label">📌 ชื่อแผน</span><span class="info-row-value">${escHtml(stratNameF?s[stratNameF]:'')||'ไม่มีข้อมูล'}</span></div>`;
-    stratSummaryHtml += `<div class="info-row"><span class="info-row-label">📝 ภาพรวมของแผน</span><span class="info-row-value">${escHtml(stratOverviewF?s[stratOverviewF]:'')||'ไม่มีข้อมูล'}</span></div>`;
-    stratSummaryHtml += `<div class="info-row"><span class="info-row-label">🌏 ความเกี่ยวข้องกับ GMS 2030</span><span class="info-row-value">${escHtml(stratGms2030F?s[stratGms2030F]:'')||'ไม่มีข้อมูล'}</span></div>`;
-    stratSummaryHtml += `<div class="info-row"><span class="info-row-label">🇹🇭 ความเกี่ยวข้องกับแผนชาติ</span><span class="info-row-value">${escHtml(stratNationalF?s[stratNationalF]:'')||'ไม่มีข้อมูล'}</span></div>`;
+    stratSummaryHtml += `<div class="info-row"><span class="info-row-label">📌 ชื่อแผน</span><span class="info-row-value">${escHtml(stratNameF?s[stratNameF]:'')||'-'}</span></div>`;
+    stratSummaryHtml += `<div class="info-row"><span class="info-row-label">📝 ภาพรวมของแผน</span><span class="info-row-value">${escHtml(stratOverviewF?s[stratOverviewF]:'')||'-'}</span></div>`;
+    stratSummaryHtml += `<div class="info-row"><span class="info-row-label">🌏 ความเกี่ยวข้องกับ GMS 2030</span><span class="info-row-value">${escHtml(stratGms2030F?s[stratGms2030F]:'')||'-'}</span></div>`;
+    stratSummaryHtml += `<div class="info-row"><span class="info-row-label">🇹🇭 ความเกี่ยวข้องกับแผนชาติ</span><span class="info-row-value">${escHtml(stratNationalF?s[stratNationalF]:'')||'-'}</span></div>`;
     if (statusField && s[statusField]) stratSummaryHtml += `<div class="info-row"><span class="info-row-label">สถานะ</span><span class="info-row-value">${sBadge(s[statusField])}</span></div>`;
   } else {
-    stratSummaryHtml += `<div class="info-row"><span class="info-row-value" style="color:var(--text-muted)">ไม่มีข้อมูล</span></div>`;
+    stratSummaryHtml += `<div class="info-row"><span class="info-row-value" style="color:var(--text-muted)">ยังไม่มีข้อมูลแผนยุทธศาสตร์สำหรับสาขานี้</span></div>`;
   }
   stratSummaryHtml += `</div></div>`;
 
@@ -1015,7 +995,7 @@ function renderWGDetail(rows, wgName) {
   const latestField = findField(rows[0], ['Latest_Update','ความคืบหน้าล่าสุด','Latest_Progress','LatestUpdate']);
   const latestVals = latestField ? rows.map(r=>r[latestField]).filter(Boolean) : [];
   const latestText = latestVals.length ? latestVals[latestVals.length-1] : '';
-  const latestHtml = `<div class="highlight-card latest"><div class="highlight-card-title">🟣 ความคืบหน้าล่าสุด</div><div class="highlight-card-body">${escHtml(latestText) || '<span style="color:var(--text-muted)">ไม่มีข้อมูล</span>'}</div></div>`;
+  const latestHtml = `<div class="highlight-card latest"><div class="highlight-card-title">🟣 ความคืบหน้าล่าสุด</div><div class="highlight-card-body">${escHtml(latestText) || '<span style="color:var(--text-muted)">ยังไม่มีรายงานความคืบหน้าล่าสุด</span>'}</div></div>`;
 
   /* ── 4. ข้อวิเคราะห์หน่วยงาน (always visible) ── */
   const strengthField = findField(rows[0], ['Strength','จุดแข็ง']);
@@ -1027,13 +1007,13 @@ function renderWGDetail(rows, wgName) {
   let orgAnalysisHtml = `<div class="highlight-card swot"><div class="highlight-card-title">📊 ข้อวิเคราะห์หน่วยงาน</div>`;
   if (sVal || wVal) {
     orgAnalysisHtml += `<div class="swot-grid">
-      <div class="swot-box strength"><div class="swot-box-label">✅ จุดแข็ง</div>${escHtml(sVal)||'ไม่มีข้อมูล'}</div>
-      <div class="swot-box weakness"><div class="swot-box-label">⚠️ จุดอ่อน</div>${escHtml(wVal)||'ไม่มีข้อมูล'}</div>
+      <div class="swot-box strength"><div class="swot-box-label">✅ จุดแข็ง</div>${escHtml(sVal)||'-'}</div>
+      <div class="swot-box weakness"><div class="swot-box-label">⚠️ จุดอ่อน</div>${escHtml(wVal)||'-'}</div>
     </div>`;
   } else if (oaVal) {
     orgAnalysisHtml += `<div class="highlight-card-body">${escHtml(oaVal)}</div>`;
   } else {
-    orgAnalysisHtml += `<div class="highlight-card-body" style="color:var(--text-muted)">ไม่มีข้อมูล</div>`;
+    orgAnalysisHtml += `<div class="highlight-card-body" style="color:var(--text-muted)">ยังไม่มีข้อวิเคราะห์หน่วยงาน</div>`;
   }
   orgAnalysisHtml += `</div>`;
 
@@ -1041,10 +1021,18 @@ function renderWGDetail(rows, wgName) {
   const sentimentField = findField(rows[0], ['Public_Sentiment','ท่าทีของภาคเอกชน','Sentiment','ท่าที']);
   const sentVals = sentimentField ? rows.map(r=>r[sentimentField]).filter(Boolean) : [];
   const sentText = sentVals.length ? [...new Set(sentVals)].join('\n') : '';
-  const sentimentHtml = `<div class="highlight-card sentiment"><div class="highlight-card-title">🗣 ท่าทีของภาคเอกชน/ประชาสังคม/ประชาชน</div><div class="highlight-card-body">${escHtml(sentText) || '<span style="color:var(--text-muted)">ไม่มีข้อมูล</span>'}</div></div>`;
+  const sentimentHtml = `<div class="highlight-card sentiment"><div class="highlight-card-title">🗣 ท่าทีของภาคเอกชน/ประชาสังคม/ประชาชน</div><div class="highlight-card-body">${escHtml(sentText) || '<span style="color:var(--text-muted)">ยังไม่มีข้อมูลท่าที</span>'}</div></div>`;
 
   /* ── 6. กิจกรรมอื่นๆ ที่เกี่ยวข้อง: name+status list, click → modal ── */
-  function itemDisplayName(r, type) { return resolveItemName(r); }
+  function itemDisplayName(r, type) {
+    const t = type.toLowerCase();
+    let f;
+    if (t === 'project') f = findField(r, ['Project_Name','ชื่อโครงการ','Name']);
+    else if (t === 'rif') f = findField(r, ['RIF_Name','ชื่อโครงการRIF','Project_Name']);
+    else if (t === 'mou') f = findField(r, ['MOU_Name','ชื่อMOU','Project_Name']);
+    else if (t === 'meeting') f = findField(r, ['Meeting_Name','ชื่อการประชุม','Project_Name']);
+    return f ? r[f] : '';
+  }
 
   function buildModalFields(r, type) {
     const t = type.toLowerCase();
@@ -1091,7 +1079,7 @@ function renderWGDetail(rows, wgName) {
     if (!items.length) return '';
     const icon = ICONS[type]; const label = LABELS[type];
     const rowsHtml = items.map((r, idx) => {
-      const name = itemDisplayName(r, type) || 'ไม่มีข้อมูล';
+      const name = itemDisplayName(r, type) || 'ไม่ระบุชื่อ';
       const st = statusField ? r[statusField] : '';
       const modalId = `modal-${type}-${wgName.replace(/[^a-zA-Z0-9ก-๙]/g,'')}-${idx}`;
       const fields = buildModalFields(r, type);
@@ -1111,7 +1099,7 @@ function renderWGDetail(rows, wgName) {
 
   let fallbackHtml = '';
   if (hasNoType) {
-    fallbackHtml = `<div class="info-card"><div class="info-card-header"><div class="info-card-icon">📋</div><div class="info-card-title">รายการ (${rows.length})</div></div><div class="info-card-body"><div class="no-data" style="padding:1rem">ไม่มีข้อมูล</div></div></div>`;
+    fallbackHtml = `<div class="info-card"><div class="info-card-header"><div class="info-card-icon">📋</div><div class="info-card-title">รายการ (${rows.length})</div></div><div class="info-card-body"><div class="no-data" style="padding:1rem">โปรดระบุคอลัมน์ Type เพื่อจัดหมวดหมู่ Project / RIF / MOU / Meeting</div></div></div>`;
   }
 
   return `
@@ -1176,19 +1164,22 @@ function renderProgress(rows) {
   const statusField = findField(rows[0], ['Current_Status','Status','สถานะ','status']);
   const typeField = findField(rows[0], ['Type','ประเภท','Category','type']);
   const budgetField = findField(rows[0], ['Budget','งบประมาณ','budget','Amount']);
+  const budgetAnnField = findField(rows[0], ['Budget_Annual','งบประจำปี']);
   const wgField = findField(rows[0], ['Working_Group','WorkingGroup','คณะทำงาน','WG','สาขา','สาขาความร่วมมือ']);
+  const nameField = findField(rows[0], ['Project_Name','Name','ชื่อโครงการ','Title','ชื่อ']);
   const yearField = getYearField();
 
   const wgs = [...new Set(rows.map(r => wgField ? r[wgField] : '').filter(Boolean))];
   const types = [...new Set(rows.map(r => typeField ? r[typeField] : '').filter(Boolean))];
   const statuses = [...new Set(rows.map(r => statusField ? r[statusField] : '').filter(Boolean))];
-  const years = getAvailableYears();
+  let years = ['ทั้งหมด'];
+  if (yearField) years = ['ทั้งหมด', ...new Set(allRows.map(r => r[yearField]).filter(Boolean))].sort((a,b)=> a==='ทั้งหมด'?-1:String(a).localeCompare(String(b)));
 
   container.innerHTML = `
     <div class="filter-bar">
       <span class="filter-label">กรองข้อมูล:</span>
       <select class="filter-select" id="fYear" onchange="applyF()">
-        ${years.map(y=>`<option value="${escHtml(y)}">${y==='ทั้งหมด'?'📅 ทุกปี (พ.ศ.)':'📅 พ.ศ. '+y}</option>`).join('')}
+        ${years.map(y=>`<option value="${escHtml(y)}">${y==='ทั้งหมด'?'📅 ทุกปี':'📅 '+y}</option>`).join('')}
       </select>
       <select class="filter-select" id="fWG" onchange="applyF()">
         <option value="">🏛 ทุกสาขา/ประเด็น</option>${wgs.map(w=>`<option value="${escHtml(w)}">${escHtml(w)}</option>`).join('')}
@@ -1216,6 +1207,7 @@ function applyF() {
   const typeField = findField(allRows[0], ['Type','ประเภท','Category','type']);
   const budgetField = findField(allRows[0], ['Budget','งบประมาณ','budget','Amount']);
   const wgField = findField(allRows[0], ['Working_Group','WorkingGroup','คณะทำงาน','WG','สาขา','สาขาความร่วมมือ']);
+  const nameField = findField(allRows[0], ['Project_Name','Name','ชื่อโครงการ','Title','ชื่อ']);
   const yearField = getYearField();
 
   let base = (yearVal === 'ทั้งหมด' || !yearField) ? allRows : allRows.filter(r => String(r[yearField]).trim() === yearVal);
@@ -1227,29 +1219,28 @@ function applyF() {
     return true;
   });
 
+  const keys = Object.keys(allRows[0] || {});
   const tableWrap = document.getElementById('progTableWrap');
   if (!tableWrap) return;
 
   if (filtered.length === 0) {
     tableWrap.innerHTML = '<div class="no-data">ไม่พบข้อมูลที่ตรงกับเงื่อนไข</div>';
   } else {
+    const showCols = [wgField, nameField, typeField, statusField, budgetField].filter(Boolean);
     let html = `<div class="prog-table-wrap"><table class="prog-table"><thead><tr><th>#</th>`;
-    if (wgField) html += `<th>${escHtml(wgField)}</th>`;
-    html += `<th>ชื่อรายการ (โครงการ / RIF / MOU / การประชุม)</th>`;
-    if (typeField) html += `<th>${escHtml(typeField)}</th>`;
-    if (statusField) html += `<th>${escHtml(statusField)}</th>`;
-    if (budgetField) html += `<th>${escHtml(budgetField)}</th>`;
+    showCols.forEach(c => { html += `<th>${escHtml(c)}</th>`; });
     html += `<th>ความคืบหน้า</th></tr></thead><tbody>`;
     filtered.forEach((r, i) => {
       const st = statusField ? r[statusField] : '';
       const pct = statusToProgress(st);
-      const itemName = resolveItemName(r) || 'ไม่มีข้อมูล';
       html += `<tr><td style="color:var(--text-muted);font-size:12px">${i+1}</td>`;
-      if (wgField) html += `<td style="font-size:13px">${escHtml(r[wgField])||'-'}</td>`;
-      html += `<td style="font-size:13px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(itemName)}">${escHtml(itemName)}</td>`;
-      if (typeField) html += `<td><span class="${typeChipClass(r[typeField])}">${escHtml(r[typeField])||'-'}</span></td>`;
-      if (statusField) html += `<td>${sBadge(st)}</td>`;
-      if (budgetField) html += `<td style="font-size:12px;color:var(--text-muted)">${fmtBudget(r[budgetField])}</td>`;
+      showCols.forEach(c => {
+        const val = r[c] || '';
+        if (c === typeField) html += `<td><span class="${typeChipClass(val)}">${escHtml(val)||'-'}</span></td>`;
+        else if (c === statusField) html += `<td>${sBadge(val)}</td>`;
+        else if (c === budgetField) html += `<td style="font-size:12px;color:var(--text-muted)">${fmtBudget(val)}</td>`;
+        else html += `<td style="font-size:13px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(val)}">${escHtml(val)||'-'}</td>`;
+      });
       html += `<td><div style="display:flex;align-items:center;gap:6px"><div class="mini-progress" style="width:90px"><div class="mini-progress-fill" style="width:${pct}%"></div></div><span style="font-size:12px;font-weight:600;color:var(--purple-700)">${pct}%</span></div></td></tr>`;
     });
     html += `</tbody></table></div>`;
@@ -1293,6 +1284,7 @@ function renderProgressCharts(filtered, statusField, typeField, wgField) {
 function renderDocuments(rows) {
   const container = document.getElementById('docContent');
   const docField = findField(rows[0], ['Document','เอกสาร','Link','URL','url','link','Doc']);
+  const nameField = findField(rows[0], ['Project_Name','Name','ชื่อโครงการ','Title','ชื่อ']);
   const typeField = findField(rows[0], ['Type','ประเภท','Category','type']);
 
   const categories = {
@@ -1323,15 +1315,15 @@ function renderDocuments(rows) {
     const items = categories[cat];
     html += `<div class="doc-list-modal" id="folder-${idx}">
       <div class="doc-list-header"><span>${catEmojis[cat]||'📁'} ${escHtml(cat)} (${items.length} รายการ)</span><button class="doc-close-btn" onclick="toggleFolder('folder-${idx}')">✕ ปิด</button></div>`;
-    if (items.length === 0) html += '<div class="doc-item" style="color:var(--text-muted)">ไม่มีข้อมูล</div>';
+    if (items.length === 0) html += '<div class="doc-item" style="color:var(--text-muted)">ไม่พบรายการ</div>';
     else items.forEach(r => {
-      const nm = resolveItemName(r) || 'ไม่มีข้อมูล';
+      const nm = nameField ? r[nameField] : (r[Object.keys(r)[0]]||'ไม่ระบุ');
       const link = docField ? r[docField] : '';
       const stF = findField(r, ['Current_Status','Status','สถานะ','status']);
       const st = stF ? r[stF] : '';
       html += `<div class="doc-item">
         <span style="font-size:16px">${link && link.startsWith('http') ? '🔗' : '📄'}</span>
-        ${link && link.startsWith('http') ? `<a href="${escHtml(link)}" target="_blank" class="doc-link">${escHtml(nm)}</a>` : `<span class="doc-link" style="color:var(--text-primary)">${escHtml(nm)}</span>`}
+        ${link && link.startsWith('http') ? `<a href="${escHtml(link)}" target="_blank" class="doc-link">${escHtml(nm||'ไม่ระบุ')}</a>` : `<span class="doc-link" style="color:var(--text-primary)">${escHtml(nm||'ไม่ระบุ')}</span>`}
         ${st ? sBadge(st) : ''}
         ${link && link.startsWith('http') ? `<a href="${escHtml(link)}" target="_blank" style="font-size:11px;color:var(--purple-600);text-decoration:none">เปิด ↗</a>` : ''}
       </div>`;
@@ -1347,121 +1339,121 @@ function toggleFolder(id) { const el = document.getElementById(id); if (el) { el
 function getSampleData() {
   const base = [
     // ── รายสาขา ──
-    {'ปี (พ.ศ.)':'2567', Working_Group:'การเกษตร',Taskforce:'คณะทำงานสาขาการเกษตร GMS',Responsible_Agency:'กระทรวงเกษตรและสหกรณ์',Focal_Point:'นางสาวสมใจ เกษตรกุล',Contact:'agri.gms@moac.go.th',
-      Type:'Project', 'ชื่อโครงการ':'โครงการพัฒนาเกษตรกรรมยั่งยืนชายแดน', Strategic_Link:'แผนยุทธศาสตร์สาขาการเกษตร GMS ฉบับที่ 3',
+    {ปี:'2567', Working_Group:'การเกษตร',Taskforce:'คณะทำงานสาขาการเกษตร GMS',Responsible_Agency:'กระทรวงเกษตรและสหกรณ์',Focal_Point:'นางสาวสมใจ เกษตรกุล',Contact:'agri.gms@moac.go.th',
+      Type:'Project', Project_Name:'โครงการพัฒนาเกษตรกรรมยั่งยืนชายแดน', Strategic_Link:'แผนยุทธศาสตร์สาขาการเกษตร GMS ฉบับที่ 3',
       Output:'พื้นที่เกษตรอินทรีย์เพิ่มขึ้น 5,000 ไร่', Outcome:'รายได้เกษตรกรเพิ่มขึ้น 15%', Impact:'ความยั่งยืนด้านอาหารในภูมิภาค', KPI:'พื้นที่เกษตรอินทรีย์ (ไร่)',
       Budget_Estimate:'6000000', Budget_Annual:'5000000', Current_Status:'On-Track', Responsible:'กรมส่งเสริมการเกษตร', Country:'ไทย, ลาว, เมียนมา',
       Latest_Update:'อยู่ระหว่างขยายพื้นที่นำร่องเฟส 2 คาดแล้วเสร็จไตรมาส 4', Strength:'ทรัพยากรธรรมชาติอุดมสมบูรณ์', Weakness:'ขาดเทคโนโลยีแปรรูปขั้นสูง',
       Public_Sentiment:'ภาคเอกชนสนับสนุนเชิงรุก เกษตรกรในพื้นที่เห็นด้วยกับแนวทางอินทรีย์'},
-    {'ปี (พ.ศ.)':'2567', Working_Group:'การเกษตร',Taskforce:'คณะทำงานสาขาการเกษตร GMS',Responsible_Agency:'กระทรวงเกษตรและสหกรณ์',Focal_Point:'นางสาวสมใจ เกษตรกุล',Contact:'agri.gms@moac.go.th',
-      Type:'MOU', 'ชื่อ MOU':'MOU ความร่วมมือด้านเกษตรอินทรีย์', Sign_Date:'15 มี.ค. 2567', Key_Principle:'ส่งเสริมมาตรฐานเกษตรอินทรีย์ร่วมกัน', Result:'มาตรฐานรับรองร่วม GMS-Organic',
+    {ปี:'2567', Working_Group:'การเกษตร',Taskforce:'คณะทำงานสาขาการเกษตร GMS',Responsible_Agency:'กระทรวงเกษตรและสหกรณ์',Focal_Point:'นางสาวสมใจ เกษตรกุล',Contact:'agri.gms@moac.go.th',
+      Type:'MOU', MOU_Name:'MOU ความร่วมมือด้านเกษตรอินทรีย์', Sign_Date:'15 มี.ค. 2567', Key_Principle:'ส่งเสริมมาตรฐานเกษตรอินทรีย์ร่วมกัน', Result:'มาตรฐานรับรองร่วม GMS-Organic',
       Current_Status:'Completed', Responsible:'กรมวิชาการเกษตร', Country:'ไทย, ญี่ปุ่น'},
-    {'ปี (พ.ศ.)':'2568', Working_Group:'การเกษตร',Taskforce:'คณะทำงานสาขาการเกษตร GMS',Responsible_Agency:'กระทรวงเกษตรและสหกรณ์',Focal_Point:'นางสาวสมใจ เกษตรกุล',Contact:'agri.gms@moac.go.th',
-      Type:'Meeting', 'ชื่อการประชุม':'การประชุม TH-ASEAN Agricultural Forum', Meeting_Date:'12 พ.ย. 2567', Conclusion:'เห็นชอบแผนแลกเปลี่ยนเทคโนโลยีเกษตร', Next_Step:'จัดทำ MOU เทคโนโลยีเกษตรร่วม',
+    {ปี:'2568', Working_Group:'การเกษตร',Taskforce:'คณะทำงานสาขาการเกษตร GMS',Responsible_Agency:'กระทรวงเกษตรและสหกรณ์',Focal_Point:'นางสาวสมใจ เกษตรกุล',Contact:'agri.gms@moac.go.th',
+      Type:'Meeting', Meeting_Name:'การประชุม TH-ASEAN Agricultural Forum', Meeting_Date:'12 พ.ย. 2567', Conclusion:'เห็นชอบแผนแลกเปลี่ยนเทคโนโลยีเกษตร', Next_Step:'จัดทำ MOU เทคโนโลยีเกษตรร่วม',
       Current_Status:'Completed', Responsible:'สำนักความร่วมมือระหว่างประเทศ', Country:'ASEAN'},
-    {'ปี (พ.ศ.)':'2568', Working_Group:'การเกษตร',Taskforce:'คณะทำงานสาขาการเกษตร GMS',Responsible_Agency:'กระทรวงเกษตรและสหกรณ์',Focal_Point:'นางสาวสมใจ เกษตรกุล',Contact:'agri.gms@moac.go.th',
-      Type:'RIF', 'ชื่อโครงการ RIF':'RIF วิจัยพันธุ์ข้าวทนแล้ง', RIF_Type:'งานวิจัยและพัฒนา', Strategic_Link:'แผนยุทธศาสตร์ความมั่นคงทางอาหาร',
+    {ปี:'2568', Working_Group:'การเกษตร',Taskforce:'คณะทำงานสาขาการเกษตร GMS',Responsible_Agency:'กระทรวงเกษตรและสหกรณ์',Focal_Point:'นางสาวสมใจ เกษตรกุล',Contact:'agri.gms@moac.go.th',
+      Type:'RIF', RIF_Name:'RIF วิจัยพันธุ์ข้าวทนแล้ง', RIF_Type:'งานวิจัยและพัฒนา', Strategic_Link:'แผนยุทธศาสตร์ความมั่นคงทางอาหาร',
       Output:'พันธุ์ข้าวทนแล้ง 2 สายพันธุ์', Outcome:'ผลผลิตคงที่แม้ภาวะแล้ง', Impact:'ลดความเสียหายจากภัยแล้ง 30%', KPI:'จำนวนสายพันธุ์ที่ขึ้นทะเบียน',
       'Baseline/Targets':'Baseline: 0 สายพันธุ์ / Target: 2 สายพันธุ์ภายในปี 2570', Budget_Estimate:'12000000', Budget_Annual:'4000000',
       Current_Status:'In Progress', Responsible:'IRRI ร่วมกับกรมการข้าว', Country:'ไทย, กัมพูชา'},
 
-    {'ปี (พ.ศ.)':'2567', Working_Group:'พลังงาน',Taskforce:'คณะทำงานสาขาพลังงาน GMS',Responsible_Agency:'กระทรวงพลังงาน',Focal_Point:'นายวิชัย ไฟฟ้าพันธุ์',Contact:'energy.gms@energy.go.th',
-      Type:'Project', 'ชื่อโครงการ':'โครงการพลังงานแสงอาทิตย์ชายแดน', Strategic_Link:'แผนยุทธศาสตร์พลังงานสะอาด GMS',
+    {ปี:'2567', Working_Group:'พลังงาน',Taskforce:'คณะทำงานสาขาพลังงาน GMS',Responsible_Agency:'กระทรวงพลังงาน',Focal_Point:'นายวิชัย ไฟฟ้าพันธุ์',Contact:'energy.gms@energy.go.th',
+      Type:'Project', Project_Name:'โครงการพลังงานแสงอาทิตย์ชายแดน', Strategic_Link:'แผนยุทธศาสตร์พลังงานสะอาด GMS',
       Output:'โรงไฟฟ้าพลังแสงอาทิตย์ 50MW', Outcome:'ลดการนำเข้าพลังงานฟอสซิล', Impact:'ลดคาร์บอนเทียบเท่า 80,000 ตัน/ปี', KPI:'กำลังการผลิตติดตั้ง (MW)',
       Budget_Estimate:'90000000', Budget_Annual:'85000000', Current_Status:'In Progress', Responsible:'การไฟฟ้าฝ่ายผลิต', Country:'ไทย, จีน',
       Latest_Update:'ติดตั้งแผงเสร็จ 60% คาดจ่ายไฟเชิงพาณิชย์ปลายปี 2568', Strength:'พื้นที่ชายแดนมีแสงแดดเฉลี่ยสูง', Weakness:'ต้นทุนสายส่งข้ามแดนสูง',
       Public_Sentiment:'ภาคธุรกิจพลังงานสนับสนุน แต่ชุมชนบางพื้นที่กังวลผลกระทบที่ดิน'},
-    {'ปี (พ.ศ.)':'2569', Working_Group:'พลังงาน',Taskforce:'คณะทำงานสาขาพลังงาน GMS',Responsible_Agency:'กระทรวงพลังงาน',Focal_Point:'นายวิชัย ไฟฟ้าพันธุ์',Contact:'energy.gms@energy.go.th',
-      Type:'MOU', 'ชื่อ MOU':'MOU Grid Connectivity Study', Sign_Date:'รอกำหนดการ', Key_Principle:'ศึกษาความเป็นไปได้เชื่อมโยงสายส่งภูมิภาค', Result:'-',
+    {ปี:'2569', Working_Group:'พลังงาน',Taskforce:'คณะทำงานสาขาพลังงาน GMS',Responsible_Agency:'กระทรวงพลังงาน',Focal_Point:'นายวิชัย ไฟฟ้าพันธุ์',Contact:'energy.gms@energy.go.th',
+      Type:'MOU', MOU_Name:'MOU Grid Connectivity Study', Sign_Date:'รอกำหนดการ', Key_Principle:'ศึกษาความเป็นไปได้เชื่อมโยงสายส่งภูมิภาค', Result:'-',
       Current_Status:'Pending', Responsible:'กกพ.', Country:'ไทย, ลาว'},
 
-    {'ปี (พ.ศ.)':'2568', Working_Group:'สาธารณสุข',Taskforce:'คณะทำงานสาขาสาธารณสุข GMS',Responsible_Agency:'กระทรวงสาธารณสุข',Focal_Point:'นพ.สมชาย เวชกุล',Contact:'health.gms@moph.go.th',
-      Type:'Project', 'ชื่อโครงการ':'โครงการเฝ้าระวังโรคชายแดน', Strategic_Link:'แผนยุทธศาสตร์ความมั่นคงด้านสุขภาพ GMS',
+    {ปี:'2568', Working_Group:'สาธารณสุข',Taskforce:'คณะทำงานสาขาสาธารณสุข GMS',Responsible_Agency:'กระทรวงสาธารณสุข',Focal_Point:'นพ.สมชาย เวชกุล',Contact:'health.gms@moph.go.th',
+      Type:'Project', Project_Name:'โครงการเฝ้าระวังโรคชายแดน', Strategic_Link:'แผนยุทธศาสตร์ความมั่นคงด้านสุขภาพ GMS',
       Output:'ระบบเฝ้าระวังโรคติดต่อ 12 จุดชายแดน', Outcome:'ตรวจพบการระบาดได้เร็วขึ้น 40%', Impact:'ลดการแพร่ระบาดข้ามแดน', KPI:'จำนวนจุดเฝ้าระวังที่ใช้งานได้',
       Budget_Estimate:'16000000', Budget_Annual:'15000000', Current_Status:'On-Track', Responsible:'กรมควบคุมโรค', Country:'ไทย, เมียนมา, ลาว, กัมพูชา',
       Latest_Update:'ติดตั้งระบบครบ 10/12 จุด เหลืออีก 2 จุดในไตรมาสหน้า'},
-    {'ปี (พ.ศ.)':'2567', Working_Group:'สาธารณสุข',Taskforce:'คณะทำงานสาขาสาธารณสุข GMS',Responsible_Agency:'กระทรวงสาธารณสุข',Focal_Point:'นพ.สมชาย เวชกุล',Contact:'health.gms@moph.go.th',
-      Type:'Meeting', 'ชื่อการประชุม':'การประชุมรัฐมนตรีสาธารณสุข GMS', Meeting_Date:'20 ก.ย. 2567', Conclusion:'เห็นชอบกรอบความร่วมมือเฝ้าระวังโรคระยะ 5 ปี', Next_Step:'จัดทำแผนปฏิบัติการร่วม',
+    {ปี:'2567', Working_Group:'สาธารณสุข',Taskforce:'คณะทำงานสาขาสาธารณสุข GMS',Responsible_Agency:'กระทรวงสาธารณสุข',Focal_Point:'นพ.สมชาย เวชกุล',Contact:'health.gms@moph.go.th',
+      Type:'Meeting', Meeting_Name:'การประชุมรัฐมนตรีสาธารณสุข GMS', Meeting_Date:'20 ก.ย. 2567', Conclusion:'เห็นชอบกรอบความร่วมมือเฝ้าระวังโรคระยะ 5 ปี', Next_Step:'จัดทำแผนปฏิบัติการร่วม',
       Current_Status:'Completed', Responsible:'ปลัดกระทรวงสาธารณสุข', Country:'6 ประเทศ GMS'},
 
-    {'ปี (พ.ศ.)':'2568', Working_Group:'การค้าและการลงทุน',Taskforce:'คณะทำงานสาขาการค้าและการลงทุน GMS',Responsible_Agency:'กระทรวงพาณิชย์',Focal_Point:'นางสาวพิมพ์ใจ การค้าดี',Contact:'trade.gms@moc.go.th',
-      Type:'Project', 'ชื่อโครงการ':'โครงการ Trade Facilitation GMS', Strategic_Link:'แผนยุทธศาสตร์การค้าและการลงทุน GMS',
+    {ปี:'2568', Working_Group:'การค้าและการลงทุน',Taskforce:'คณะทำงานสาขาการค้าและการลงทุน GMS',Responsible_Agency:'กระทรวงพาณิชย์',Focal_Point:'นางสาวพิมพ์ใจ การค้าดี',Contact:'trade.gms@moc.go.th',
+      Type:'Project', Project_Name:'โครงการ Trade Facilitation GMS', Strategic_Link:'แผนยุทธศาสตร์การค้าและการลงทุน GMS',
       Output:'ระบบศุลกากรอิเล็กทรอนิกส์เชื่อมโยง 4 ประเทศ', Outcome:'ลดเวลาผ่านแดนเฉลี่ย 35%', Impact:'มูลค่าการค้าชายแดนเพิ่มขึ้น', KPI:'เวลาผ่านแดนเฉลี่ย (ชม.)',
       Budget_Estimate:'48000000', Budget_Annual:'45000000', Current_Status:'In Progress', Responsible:'กรมการค้าต่างประเทศ', Country:'ไทย, ลาว, กัมพูชา, เวียดนาม'},
-    {'ปี (พ.ศ.)':'2567', Working_Group:'การค้าและการลงทุน',Taskforce:'คณะทำงานสาขาการค้าและการลงทุน GMS',Responsible_Agency:'กระทรวงพาณิชย์',Focal_Point:'นางสาวพิมพ์ใจ การค้าดี',Contact:'trade.gms@moc.go.th',
-      Type:'Strategic Plan', 'ชื่อแผนยุทธศาสตร์':'แผนยุทธศาสตร์การส่งออก GMS ปี 2567-2571', Plan_Overview:'มุ่งเพิ่มมูลค่าการค้าชายแดนผ่านการลดอุปสรรคทางการค้าและพัฒนาโครงสร้างพื้นฐาน',
+    {ปี:'2567', Working_Group:'การค้าและการลงทุน',Taskforce:'คณะทำงานสาขาการค้าและการลงทุน GMS',Responsible_Agency:'กระทรวงพาณิชย์',Focal_Point:'นางสาวพิมพ์ใจ การค้าดี',Contact:'trade.gms@moc.go.th',
+      Type:'Strategic Plan', Strategic_Plan_Name:'แผนยุทธศาสตร์การส่งออก GMS ปี 2567-2571', Plan_Overview:'มุ่งเพิ่มมูลค่าการค้าชายแดนผ่านการลดอุปสรรคทางการค้าและพัฒนาโครงสร้างพื้นฐาน',
       GMS2030:'สอดคล้องกับเสาหลักด้านการเชื่อมโยงเศรษฐกิจของ GMS 2030', National_Plan:'เชื่อมโยงกับยุทธศาสตร์ชาติด้านการสร้างความสามารถในการแข่งขัน',
       Current_Status:'On-Track', Responsible:'สนค.'},
 
-    {'ปี (พ.ศ.)':'2568', Working_Group:'การท่องเที่ยว',Taskforce:'คณะทำงานสาขาการท่องเที่ยว GMS',Responsible_Agency:'กระทรวงการท่องเที่ยวและกีฬา',Focal_Point:'นายท่องเที่ยว ใจดี',Contact:'tourism.gms@mots.go.th',
-      Type:'Project', 'ชื่อโครงการ':'GMS Tourism Corridor Project', Strategic_Link:'แผนยุทธศาสตร์การท่องเที่ยวเชื่อมโยง GMS',
+    {ปี:'2568', Working_Group:'การท่องเที่ยว',Taskforce:'คณะทำงานสาขาการท่องเที่ยว GMS',Responsible_Agency:'กระทรวงการท่องเที่ยวและกีฬา',Focal_Point:'นายท่องเที่ยว ใจดี',Contact:'tourism.gms@mots.go.th',
+      Type:'Project', Project_Name:'GMS Tourism Corridor Project', Strategic_Link:'แผนยุทธศาสตร์การท่องเที่ยวเชื่อมโยง GMS',
       Output:'เส้นทางท่องเที่ยวเชื่อมโยง 4 ประเทศ', Outcome:'นักท่องเที่ยวข้ามแดนเพิ่มขึ้น 20%', Impact:'กระจายรายได้สู่ชุมชนชายแดน', KPI:'จำนวนนักท่องเที่ยวข้ามแดน',
       Budget_Estimate:'25000000', Budget_Annual:'22000000', Current_Status:'On-Track', Responsible:'ททท.', Country:'ไทย, ลาว, กัมพูชา, เวียดนาม',
       Latest_Update:'เปิดเส้นทางนำร่อง 2 เส้นทาง ได้รับผลตอบรับดีจากผู้ประกอบการ'},
 
-    {'ปี (พ.ศ.)':'2569', Working_Group:'สิ่งแวดล้อม',Taskforce:'คณะทำงานสาขาสิ่งแวดล้อม GMS',Responsible_Agency:'กระทรวงทรัพยากรธรรมชาติและสิ่งแวดล้อม',Focal_Point:'นางสาวสิ่งแวดล้อม รักษ์ดี',Contact:'env.gms@mnre.go.th',
-      Type:'RIF', 'ชื่อโครงการ RIF':'RIF Climate Change Adaptation', RIF_Type:'การปรับตัวต่อการเปลี่ยนแปลงสภาพภูมิอากาศ', Strategic_Link:'แผนยุทธศาสตร์สิ่งแวดล้อมและการเปลี่ยนแปลงสภาพภูมิอากาศ',
+    {ปี:'2569', Working_Group:'สิ่งแวดล้อม',Taskforce:'คณะทำงานสาขาสิ่งแวดล้อม GMS',Responsible_Agency:'กระทรวงทรัพยากรธรรมชาติและสิ่งแวดล้อม',Focal_Point:'นางสาวสิ่งแวดล้อม รักษ์ดี',Contact:'env.gms@mnre.go.th',
+      Type:'RIF', RIF_Name:'RIF Climate Change Adaptation', RIF_Type:'การปรับตัวต่อการเปลี่ยนแปลงสภาพภูมิอากาศ', Strategic_Link:'แผนยุทธศาสตร์สิ่งแวดล้อมและการเปลี่ยนแปลงสภาพภูมิอากาศ',
       Output:'แผนที่ความเสี่ยงน้ำท่วม-แล้งลุ่มน้ำโขง', Outcome:'การเตือนภัยล่วงหน้าแม่นยำขึ้น', Impact:'ลดความเสียหายจากภัยธรรมชาติ', KPI:'ความแม่นยำการพยากรณ์ (%)',
       'Baseline/Targets':'Baseline: 60% / Target: 85% ภายในปี 2570', Budget_Estimate:'35000000', Budget_Annual:'0',
       Current_Status:'Pending', Responsible:'MRC', Country:'ไทย, ลาว, กัมพูชา, เวียดนาม'},
 
-    {'ปี (พ.ศ.)':'2567', Working_Group:'การคมนาคม',Taskforce:'คณะทำงานสาขาการคมนาคม GMS',Responsible_Agency:'กระทรวงคมนาคม',Focal_Point:'นายขนส่ง เส้นทางดี',Contact:'transport.gms@mot.go.th',
-      Type:'Project', 'ชื่อโครงการ':'โครงการพัฒนาเส้นทางระเบียงเศรษฐกิจ R3A', Strategic_Link:'แผนยุทธศาสตร์การคมนาคมเชื่อมโยง GMS',
+    {ปี:'2567', Working_Group:'การคมนาคม',Taskforce:'คณะทำงานสาขาการคมนาคม GMS',Responsible_Agency:'กระทรวงคมนาคม',Focal_Point:'นายขนส่ง เส้นทางดี',Contact:'transport.gms@mot.go.th',
+      Type:'Project', Project_Name:'โครงการพัฒนาเส้นทางระเบียงเศรษฐกิจ R3A', Strategic_Link:'แผนยุทธศาสตร์การคมนาคมเชื่อมโยง GMS',
       Output:'ถนนมาตรฐานสากลระยะ 120 กม.', Outcome:'ลดเวลาขนส่งสินค้า 25%', Impact:'เพิ่มมูลค่าการค้าชายแดนเหนือ', KPI:'ระยะทางที่ปรับปรุงแล้ว (กม.)',
       Budget_Estimate:'130000000', Budget_Annual:'120000000', Current_Status:'On-Track', Responsible:'ทางหลวง', Country:'ไทย, ลาว, จีน'},
 
-    {'ปี (พ.ศ.)':'2568', Working_Group:'การพัฒนาเมือง',Taskforce:'คณะทำงานสาขาการพัฒนาเมือง GMS',Responsible_Agency:'กรมโยธาธิการและผังเมือง',Focal_Point:'นางสาวเมือง พัฒนากุล',Contact:'urban.gms@dpt.go.th',
-      Type:'Meeting', 'ชื่อการประชุม':'การประชุมเครือข่ายเมือง GMS', Meeting_Date:'8 ส.ค. 2567', Conclusion:'เห็นชอบแนวทางเมืองอัจฉริยะชายแดนร่วม', Next_Step:'จัดทำผังแม่บทเมืองนำร่อง',
+    {ปี:'2568', Working_Group:'การพัฒนาเมือง',Taskforce:'คณะทำงานสาขาการพัฒนาเมือง GMS',Responsible_Agency:'กรมโยธาธิการและผังเมือง',Focal_Point:'นางสาวเมือง พัฒนากุล',Contact:'urban.gms@dpt.go.th',
+      Type:'Meeting', Meeting_Name:'การประชุมเครือข่ายเมือง GMS', Meeting_Date:'8 ส.ค. 2567', Conclusion:'เห็นชอบแนวทางเมืองอัจฉริยะชายแดนร่วม', Next_Step:'จัดทำผังแม่บทเมืองนำร่อง',
       Current_Status:'Completed', Responsible:'กรมโยธาธิการและผังเมือง', Country:'GMS Cities'},
 
     // ── รายประเด็น ──
-    {'ปี (พ.ศ.)':'2568', Working_Group:'ความร่วมมือด้านดิจิทัล',Taskforce:'คณะทำงานประเด็นความร่วมมือด้านดิจิทัล',Responsible_Agency:'กระทรวงดิจิทัลเพื่อเศรษฐกิจและสังคม',Focal_Point:'นายดิจิทัล เทคโนกุล',Contact:'digital.gms@mdes.go.th',
-      Type:'Project', 'ชื่อโครงการ':'Digital Economy GMS Platform', Strategic_Link:'แผนยุทธศาสตร์ความร่วมมือด้านดิจิทัล GMS',
+    {ปี:'2568', Working_Group:'ความร่วมมือด้านดิจิทัล',Taskforce:'คณะทำงานประเด็นความร่วมมือด้านดิจิทัล',Responsible_Agency:'กระทรวงดิจิทัลเพื่อเศรษฐกิจและสังคม',Focal_Point:'นายดิจิทัล เทคโนกุล',Contact:'digital.gms@mdes.go.th',
+      Type:'Project', Project_Name:'Digital Economy GMS Platform', Strategic_Link:'แผนยุทธศาสตร์ความร่วมมือด้านดิจิทัล GMS',
       Output:'แพลตฟอร์มกลางสำหรับ SME ข้ามแดน', Outcome:'SME เข้าถึงตลาดภูมิภาคมากขึ้น', Impact:'เศรษฐกิจดิจิทัลภูมิภาคเติบโต', KPI:'จำนวน SME ที่ใช้งานแพลตฟอร์ม',
       Budget_Estimate:'80000000', Budget_Annual:'75000000', Current_Status:'In Progress', Responsible:'สดช.', Country:'ไทย, เวียดนาม, ลาว',
       Latest_Update:'อยู่ระหว่างพัฒนาระบบ Beta คาดเปิดทดสอบไตรมาส 3', Strength:'โครงสร้างพื้นฐานดิจิทัลในกรุงเทพฯแข็งแกร่ง', Weakness:'ความเหลื่อมล้ำดิจิทัลในพื้นที่ชายแดน',
       Public_Sentiment:'ภาคธุรกิจดิจิทัลตอบรับดี ภาคประชาสังคมเรียกร้องให้คำนึงถึงความเป็นส่วนตัวข้อมูล'},
 
-    {'ปี (พ.ศ.)':'2568', Working_Group:'นวัตกรรม',Taskforce:'คณะทำงานประเด็นนวัตกรรม',Responsible_Agency:'สำนักงานนวัตกรรมแห่งชาติ',Focal_Point:'ดร.นวัตกร คิดใหม่',Contact:'innovation.gms@nia.or.th',
-      Type:'RIF', 'ชื่อโครงการ RIF':'RIF Startup Incubation GMS', RIF_Type:'การบ่มเพาะธุรกิจนวัตกรรม', Strategic_Link:'แผนยุทธศาสตร์นวัตกรรม GMS',
+    {ปี:'2568', Working_Group:'นวัตกรรม',Taskforce:'คณะทำงานประเด็นนวัตกรรม',Responsible_Agency:'สำนักงานนวัตกรรมแห่งชาติ',Focal_Point:'ดร.นวัตกร คิดใหม่',Contact:'innovation.gms@nia.or.th',
+      Type:'RIF', RIF_Name:'RIF Startup Incubation GMS', RIF_Type:'การบ่มเพาะธุรกิจนวัตกรรม', Strategic_Link:'แผนยุทธศาสตร์นวัตกรรม GMS',
       Output:'Startup ที่ผ่านการบ่มเพาะ 50 ทีม', Outcome:'อัตราการอยู่รอดธุรกิจปีแรก 70%', Impact:'นวัตกรรมข้ามแดนเพิ่มขึ้น', KPI:'จำนวน Startup ที่ระดมทุนสำเร็จ',
       'Baseline/Targets':'Baseline: 0 ทีม / Target: 50 ทีมภายในปี 2569', Budget_Estimate:'15000000', Budget_Annual:'7000000',
       Current_Status:'In Progress', Responsible:'NIA', Country:'ไทย, เวียดนาม'},
 
-    {'ปี (พ.ศ.)':'2567', Working_Group:'ความเสมอภาคทางเพศและการมีส่วนร่วม',Taskforce:'คณะทำงานประเด็นความเสมอภาคทางเพศและการมีส่วนร่วม',Responsible_Agency:'กระทรวงการพัฒนาสังคมและความมั่นคงของมนุษย์',Focal_Point:'นางสาวเสมอภาค ร่วมใจ',Contact:'gender.gms@m-society.go.th',
-      Type:'MOU', 'ชื่อ MOU':'MOU ความเสมอภาคทางเพศ GMS', Sign_Date:'8 มี.ค. 2566', Key_Principle:'ส่งเสริมการมีส่วนร่วมของสตรีในเศรษฐกิจชายแดน', Result:'เครือข่ายผู้นำสตรีชายแดน GMS',
+    {ปี:'2567', Working_Group:'ความเสมอภาคทางเพศและการมีส่วนร่วม',Taskforce:'คณะทำงานประเด็นความเสมอภาคทางเพศและการมีส่วนร่วม',Responsible_Agency:'กระทรวงการพัฒนาสังคมและความมั่นคงของมนุษย์',Focal_Point:'นางสาวเสมอภาค ร่วมใจ',Contact:'gender.gms@m-society.go.th',
+      Type:'MOU', MOU_Name:'MOU ความเสมอภาคทางเพศ GMS', Sign_Date:'8 มี.ค. 2566', Key_Principle:'ส่งเสริมการมีส่วนร่วมของสตรีในเศรษฐกิจชายแดน', Result:'เครือข่ายผู้นำสตรีชายแดน GMS',
       Current_Status:'Completed', Responsible:'พม.', Country:'GMS ทั้งหมด'},
 
-    {'ปี (พ.ศ.)':'2568', Working_Group:'การย้ายถิ่นของแรงงาน',Taskforce:'คณะทำงานประเด็นการย้ายถิ่นของแรงงาน',Responsible_Agency:'กระทรวงแรงงาน',Focal_Point:'นายแรงงาน ข้ามแดน',Contact:'labour.gms@mol.go.th',
-      Type:'Project', 'ชื่อโครงการ':'โครงการคุ้มครองแรงงานข้ามชาติ', Strategic_Link:'แผนยุทธศาสตร์การย้ายถิ่นแรงงาน GMS',
+    {ปี:'2568', Working_Group:'การย้ายถิ่นของแรงงาน',Taskforce:'คณะทำงานประเด็นการย้ายถิ่นของแรงงาน',Responsible_Agency:'กระทรวงแรงงาน',Focal_Point:'นายแรงงาน ข้ามแดน',Contact:'labour.gms@mol.go.th',
+      Type:'Project', Project_Name:'โครงการคุ้มครองแรงงานข้ามชาติ', Strategic_Link:'แผนยุทธศาสตร์การย้ายถิ่นแรงงาน GMS',
       Output:'ศูนย์ One-Stop Service แรงงานข้ามชาติ 6 จุด', Outcome:'การเข้าถึงสิทธิแรงงานเพิ่มขึ้น', Impact:'ลดการค้ามนุษย์ด้านแรงงาน', KPI:'จำนวนแรงงานที่เข้าระบบถูกกฎหมาย',
       Budget_Estimate:'18000000', Budget_Annual:'17000000', Current_Status:'On-Track', Responsible:'กรมการจัดหางาน', Country:'ไทย, เมียนมา, กัมพูชา, ลาว',
       Public_Sentiment:'องค์กรแรงงานและภาคประชาสังคมเรียกร้องให้เร่งขยายศูนย์บริการเพิ่ม'},
 
-    {'ปี (พ.ศ.)':'2569', Working_Group:'รัฐบาลท้องถิ่น',Taskforce:'คณะทำงานประเด็นรัฐบาลท้องถิ่น',Responsible_Agency:'กรมส่งเสริมการปกครองท้องถิ่น',Focal_Point:'นายท้องถิ่น ปกครองดี',Contact:'local.gms@dla.go.th',
-      Type:'Project', 'ชื่อโครงการ':'โครงการเครือข่ายเมืองพี่เมืองน้องชายแดน', Strategic_Link:'แผนยุทธศาสตร์รัฐบาลท้องถิ่น GMS',
+    {ปี:'2569', Working_Group:'รัฐบาลท้องถิ่น',Taskforce:'คณะทำงานประเด็นรัฐบาลท้องถิ่น',Responsible_Agency:'กรมส่งเสริมการปกครองท้องถิ่น',Focal_Point:'นายท้องถิ่น ปกครองดี',Contact:'local.gms@dla.go.th',
+      Type:'Project', Project_Name:'โครงการเครือข่ายเมืองพี่เมืองน้องชายแดน', Strategic_Link:'แผนยุทธศาสตร์รัฐบาลท้องถิ่น GMS',
       Output:'ข้อตกลงเมืองพี่เมืองน้อง 6 คู่เมือง', Outcome:'ความร่วมมือระดับท้องถิ่นเข้มข้นขึ้น', Impact:'การพัฒนาเชิงพื้นที่ชายแดนยั่งยืน', KPI:'จำนวนคู่เมืองที่ลงนามข้อตกลง',
       Budget_Estimate:'6000000', Budget_Annual:'0', Current_Status:'Pending', Responsible:'สถจ.', Country:'ไทย, ลาว'},
 
-    {'ปี (พ.ศ.)':'2567', Working_Group:'สภาธุรกิจ แผนงาน GMS',Taskforce:'คณะทำงานสภาธุรกิจ แผนงาน GMS',Responsible_Agency:'สภาหอการค้าแห่งประเทศไทย',Focal_Point:'นายธุรกิจ การค้าไกล',Contact:'gmsbc@thaichamber.org',
-      Type:'Meeting', 'ชื่อการประชุม':'การประชุมสภาธุรกิจ GMS ประจำปี', Meeting_Date:'14 ต.ค. 2567', Conclusion:'ภาคเอกชนเสนอข้อเรียกร้องลดอุปสรรคทางการค้า 5 ประเด็น', Next_Step:'ยื่นข้อเสนอต่อคณะกรรมการระดับชาติ',
+    {ปี:'2567', Working_Group:'สภาธุรกิจ แผนงาน GMS',Taskforce:'คณะทำงานสภาธุรกิจ แผนงาน GMS',Responsible_Agency:'สภาหอการค้าแห่งประเทศไทย',Focal_Point:'นายธุรกิจ การค้าไกล',Contact:'gmsbc@thaichamber.org',
+      Type:'Meeting', Meeting_Name:'การประชุมสภาธุรกิจ GMS ประจำปี', Meeting_Date:'14 ต.ค. 2567', Conclusion:'ภาคเอกชนเสนอข้อเรียกร้องลดอุปสรรคทางการค้า 5 ประเด็น', Next_Step:'ยื่นข้อเสนอต่อคณะกรรมการระดับชาติ',
       Current_Status:'Completed', Responsible:'สภาหอการค้า', Country:'GMS Business Council'},
 
-    {'ปี (พ.ศ.)':'2568', Working_Group:'เครือข่ายองค์ความรู้ GMS',Taskforce:'คณะทำงานเครือข่ายองค์ความรู้ GMS',Responsible_Agency:'สำนักงานสภาพัฒนาการเศรษฐกิจและสังคมแห่งชาติ',Focal_Point:'ดร.ความรู้ วิจัยกุล',Contact:'knowledge.gms@eeco.or.th',
-      Type:'Project', 'ชื่อโครงการ':'โครงการศูนย์องค์ความรู้ GMS', Strategic_Link:'แผนยุทธศาสตร์เครือข่ายองค์ความรู้ GMS',
+    {ปี:'2568', Working_Group:'เครือข่ายองค์ความรู้ GMS',Taskforce:'คณะทำงานเครือข่ายองค์ความรู้ GMS',Responsible_Agency:'สำนักงานสภาพัฒนาการเศรษฐกิจและสังคมแห่งชาติ',Focal_Point:'ดร.ความรู้ วิจัยกุล',Contact:'knowledge.gms@eeco.or.th',
+      Type:'Project', Project_Name:'โครงการศูนย์องค์ความรู้ GMS', Strategic_Link:'แผนยุทธศาสตร์เครือข่ายองค์ความรู้ GMS',
       Output:'ฐานข้อมูลงานวิจัย GMS กลาง', Outcome:'การแลกเปลี่ยนความรู้ระหว่างประเทศเพิ่มขึ้น', Impact:'นโยบายอิงหลักฐานเชิงประจักษ์มากขึ้น', KPI:'จำนวนงานวิจัยในฐานข้อมูล',
       Budget_Estimate:'12000000', Budget_Annual:'11000000', Current_Status:'In Progress', Responsible:'สศช.', Country:'GMS ทั้งหมด'},
 
-    {'ปี (พ.ศ.)':'2567', Working_Group:'หุ้นส่วนเพื่อการพัฒนา',Taskforce:'คณะทำงานหุ้นส่วนเพื่อการพัฒนา',Responsible_Agency:'สำนักงานสภาพัฒนาการเศรษฐกิจและสังคมแห่งชาติ',Focal_Point:'นางสาวหุ้นส่วน พัฒนาไกล',Contact:'partnership.gms@nesdc.go.th',
-      Type:'MOU', 'ชื่อ MOU':'MOU หุ้นส่วนพัฒนา GMS', Sign_Date:'22 ม.ค. 2566', Key_Principle:'ระดมทรัพยากรจากหุ้นส่วนพัฒนาระหว่างประเทศ', Result:'กรอบความร่วมมือทางการเงินร่วม 3 หน่วยงาน',
+    {ปี:'2567', Working_Group:'หุ้นส่วนเพื่อการพัฒนา',Taskforce:'คณะทำงานหุ้นส่วนเพื่อการพัฒนา',Responsible_Agency:'สำนักงานสภาพัฒนาการเศรษฐกิจและสังคมแห่งชาติ',Focal_Point:'นางสาวหุ้นส่วน พัฒนาไกล',Contact:'partnership.gms@nesdc.go.th',
+      Type:'MOU', MOU_Name:'MOU หุ้นส่วนพัฒนา GMS', Sign_Date:'22 ม.ค. 2566', Key_Principle:'ระดมทรัพยากรจากหุ้นส่วนพัฒนาระหว่างประเทศ', Result:'กรอบความร่วมมือทางการเงินร่วม 3 หน่วยงาน',
       Current_Status:'Completed', Responsible:'สศช.', Country:'World Bank, ADB, JICA'},
 
-    {'ปี (พ.ศ.)':'2568', Working_Group:'เลขานุการชาติ',Taskforce:'สำนักงานเลขานุการชาติ GMS ประเทศไทย',Responsible_Agency:'สำนักงานสภาพัฒนาการเศรษฐกิจและสังคมแห่งชาติ',Focal_Point:'นางสาวเลขา ประสานงาน',Contact:'gms.secretariat@nesdc.go.th',
-      Type:'Strategic Plan', 'ชื่อแผนยุทธศาสตร์':'แผนยุทธศาสตร์การประสานงานแห่งชาติ GMS', Plan_Overview:'กำหนดกลไกการประสานงานระหว่างหน่วยงานไทยที่เกี่ยวข้องกับ GMS ทั้งหมด',
+    {ปี:'2568', Working_Group:'เลขานุการชาติ',Taskforce:'สำนักงานเลขานุการชาติ GMS ประเทศไทย',Responsible_Agency:'สำนักงานสภาพัฒนาการเศรษฐกิจและสังคมแห่งชาติ',Focal_Point:'นางสาวเลขา ประสานงาน',Contact:'gms.secretariat@nesdc.go.th',
+      Type:'Strategic Plan', Strategic_Plan_Name:'แผนยุทธศาสตร์การประสานงานแห่งชาติ GMS', Plan_Overview:'กำหนดกลไกการประสานงานระหว่างหน่วยงานไทยที่เกี่ยวข้องกับ GMS ทั้งหมด',
       GMS2030:'สนับสนุนเสาหลักด้านธรรมาภิบาลและการประสานนโยบายของ GMS 2030', National_Plan:'เชื่อมโยงกับยุทธศาสตร์ชาติด้านการต่างประเทศ',
       Current_Status:'On-Track', Responsible:'สศช.'},
-    {'ปี (พ.ศ.)':'2567', Working_Group:'เลขานุการชาติ',Taskforce:'สำนักงานเลขานุการชาติ GMS ประเทศไทย',Responsible_Agency:'สำนักงานสภาพัฒนาการเศรษฐกิจและสังคมแห่งชาติ',Focal_Point:'นางสาวเลขา ประสานงาน',Contact:'gms.secretariat@nesdc.go.th',
-      Type:'Meeting', 'ชื่อการประชุม':'การประชุมคณะกรรมการแห่งชาติ GMS', Meeting_Date:'18 ธ.ค. 2567', Conclusion:'รับทราบความคืบหน้าทุกสาขาและเห็นชอบแผนปี 2568', Next_Step:'ติดตามผลทุกไตรมาส',
+    {ปี:'2567', Working_Group:'เลขานุการชาติ',Taskforce:'สำนักงานเลขานุการชาติ GMS ประเทศไทย',Responsible_Agency:'สำนักงานสภาพัฒนาการเศรษฐกิจและสังคมแห่งชาติ',Focal_Point:'นางสาวเลขา ประสานงาน',Contact:'gms.secretariat@nesdc.go.th',
+      Type:'Meeting', Meeting_Name:'การประชุมคณะกรรมการแห่งชาติ GMS', Meeting_Date:'18 ธ.ค. 2567', Conclusion:'รับทราบความคืบหน้าทุกสาขาและเห็นชอบแผนปี 2568', Next_Step:'ติดตามผลทุกไตรมาส',
       Current_Status:'Completed', Responsible:'สศช.', Country:'GMS Member Countries'},
   ];
   return base;
