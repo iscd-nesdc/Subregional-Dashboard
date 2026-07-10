@@ -322,8 +322,10 @@
   .info-card-body { padding: 12px 16px; }
   .info-card-body.scrollable-body { max-height: 220px; overflow-y: auto; white-space: pre-line; line-height: 1.65; }
   .wg-stack { display: flex; flex-direction: column; }
-  .wg-top-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 10px; align-items: start; }
-  .wg-col { display: flex; flex-direction: column; }
+  .wg-top-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 10px; align-items: stretch; }
+  .wg-col { display: flex; flex-direction: column; height: 100%; }
+  .wg-col > .info-card:last-child { flex: 1; display: flex; flex-direction: column; }
+  .wg-col > .info-card:last-child .info-card-body { flex: 1; }
 
   .info-row { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
   .info-row:last-child { border-bottom: none; }
@@ -737,11 +739,19 @@ function typeOf(row) {
   if (!row) return '';
   const tf = pickField(row, 'ประเภทกิจกรรมที่ต้องการบันทึก', ['ประเภทกิจกรรมที่ต้องการบันทึก','Type','ประเภท','Category','type']);
   const v = (tf ? (row[tf]||'') : '').toLowerCase();
-  if (v.includes('strategic') || v.includes('plan')) return 'strategic';
+  if (v.includes('strategic') || v.includes('ยุทธศาสตร์')) return 'strategic';
   if (v.includes('rif')) return 'rif';
-  if (v.includes('mou')) return 'mou';
-  if (v.includes('meeting')) return 'meeting';
-  if (v.includes('project')) return 'project';
+  if (v.includes('mou') || v.includes('บันทึกความเข้าใจ') || v.includes('บันทึกข้อตกลง')) return 'mou';
+  if (v.includes('meeting') || v.includes('ประชุม')) return 'meeting';
+  if (v.includes('project') || v.includes('โครงการ')) return 'project';
+  // Fallback for rows added directly in the sheet (not through the Form), where the
+  // "ประเภทกิจกรรมที่ต้องการบันทึก" dropdown value may be blank or worded differently:
+  // infer the type from whichever type-specific name column actually has data.
+  const order = ['strategic','rif','mou','meeting','project'];
+  for (const t of order) {
+    const nameKey = TYPE_FIELD_MAP[t].name;
+    if (row[nameKey] && String(row[nameKey]).trim()) return t;
+  }
   return '';
 }
 function getF(row, semantic) {
