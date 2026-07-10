@@ -776,31 +776,51 @@ function dedupeHeaders(rawHeaders) {
   });
 }
 function parseCSV(text) {
-  const lines = text.split(/\r?\n/);
-  if (lines.length < 2) return [];
-  const rawHeaders = splitCSVLine(lines[0]).map(h => h.trim().replace(/^"|"$/g,''));
+  const table = parseCSVTable(text);
+  if (table.length < 2) return [];
+  const rawHeaders = table[0].map(h => (h||'').trim());
   const headers = dedupeHeaders(rawHeaders);
   const rows = [];
-  for (let i = 1; i < lines.length; i++) {
-    if (!lines[i].trim()) continue;
-    const cells = splitCSVLine(lines[i]);
+  for (let i = 1; i < table.length; i++) {
+    const cells = table[i];
+    if (cells.every(c => (c||'').trim() === '')) continue;
     const obj = {};
-    headers.forEach((h, idx) => { obj[h] = (cells[idx]||'').trim().replace(/^"|"$/g,''); });
+    headers.forEach((h, idx) => { obj[h] = (cells[idx]||'').trim(); });
     rows.push(obj);
   }
   return rows;
 }
-function splitCSVLine(line) {
-  const result = []; let cur = '', inQ = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (c === '"' && !inQ) { inQ = true; continue; }
-    if (c === '"' && inQ) { if (line[i+1]==='"') { cur+='"'; i++; } else inQ=false; continue; }
-    if (c === ',' && !inQ) { result.push(cur); cur=''; continue; }
-    cur += c;
+// RFC-4180-style parser: splitting on raw newlines BEFORE parsing quotes breaks any
+// field that contains a line break (very common in long-answer Google Form fields),
+// which shifts every subsequent column and is what caused unrelated sentence
+// fragments to appear as "years" in the filter dropdown. This parser tracks quote
+// state across the whole text so embedded newlines inside a quoted field stay
+// part of that one field/row instead of breaking the table apart.
+function parseCSVTable(text) {
+  const table = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+  const n = text.length;
+  let i = 0;
+  while (i < n) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i+1] === '"') { field += '"'; i += 2; continue; }
+        inQuotes = false; i++; continue;
+      }
+      field += c; i++; continue;
+    } else {
+      if (c === '"') { inQuotes = true; i++; continue; }
+      if (c === ',') { row.push(field); field = ''; i++; continue; }
+      if (c === '\r') { i++; continue; }
+      if (c === '\n') { row.push(field); table.push(row); row = []; field = ''; i++; continue; }
+      field += c; i++; continue;
+    }
   }
-  result.push(cur);
-  return result;
+  if (field.length > 0 || row.length > 0) { row.push(field); table.push(row); }
+  return table;
 }
 function csvEscape(v) {
   v = String(v==null?'':v);
