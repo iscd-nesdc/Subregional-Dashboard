@@ -765,8 +765,17 @@ function getF(row, semantic) {
   if (!row) return '';
   const map = TYPE_FIELD_MAP[typeOf(row)];
   if (!map || !map[semantic]) return '';
-  const v = row[map[semantic]];
-  return v !== undefined ? v : '';
+  const key = map[semantic];
+  if (Object.prototype.hasOwnProperty.call(row, key)) {
+    const v = row[key];
+    return v !== undefined ? v : '';
+  }
+  // Defense in depth: if the exact expected column name isn't present (unexpected
+  // header wording/formatting), fall back to a fuzzy match rather than silently
+  // returning blank — this is what previously made budget figures disappear
+  // whenever the sheet's actual header text didn't match byte-for-byte.
+  const found = findField(row, [key]);
+  return found ? (row[found] || '') : '';
 }
 function resolveItemName(row) { return getF(row, 'name'); }
 function statusOf(row) { return getF(row, 'status'); }
@@ -790,6 +799,18 @@ function formatBudgetPair(b) {
 }
 
 /* ════════════════════ CSV PARSER (de-duplicates repeated headers) ════════════════════ */
+// Column headers can come out of Google Sheets with slightly different punctuation
+// than expected (a plain "-" or "–" instead of the em dash "—" used in compound
+// header names, extra/irregular spacing, etc). Since several lookups match header
+// text exactly (for speed and to disambiguate repeated question labels), normalize
+// headers once at parse time so those small formatting differences don't cause a
+// field (most commonly the budget columns, which have the most punctuation) to
+// silently come back blank.
+function normalizeHeaderText(h) {
+  let s = (h || '').trim().replace(/\s+/g, ' ');
+  s = s.replace(/\s[-–—]\s/g, ' — '); // any dash used as a separator → canonical em dash
+  return s;
+}
 function dedupeHeaders(rawHeaders) {
   const seen = {};
   return rawHeaders.map(h => {
@@ -800,7 +821,7 @@ function dedupeHeaders(rawHeaders) {
 function parseCSV(text) {
   const table = parseCSVTable(text);
   if (table.length < 2) return [];
-  const rawHeaders = table[0].map(h => (h||'').trim());
+  const rawHeaders = table[0].map(h => normalizeHeaderText(h));
   const headers = dedupeHeaders(rawHeaders);
   const rows = [];
   for (let i = 1; i < table.length; i++) {
@@ -885,7 +906,7 @@ async function tryFetchHTML(url, label) {
     if (!table) throw new Error('No table found');
     const thRows = table.querySelectorAll('tr');
     if (thRows.length < 2) throw new Error('No data rows');
-    const rawHeaders = [...thRows[0].querySelectorAll('td,th')].map(c => c.textContent.trim());
+    const rawHeaders = [...thRows[0].querySelectorAll('td,th')].map(c => normalizeHeaderText(c.textContent));
     const headers = dedupeHeaders(rawHeaders);
     const rows = [];
     for (let i = 1; i < thRows.length; i++) {
