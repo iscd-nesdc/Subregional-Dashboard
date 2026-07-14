@@ -319,7 +319,7 @@
   .info-card-header { background: var(--purple-50); border-bottom: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; gap: 8px; }
   .info-card-title { font-size: 13px; font-weight: 600; color: var(--purple-800); }
   .info-card-icon { width: 22px; height: 22px; background: var(--purple-200); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--purple-700); flex-shrink: 0; }
-  .info-card-body { padding: 12px 16px; }
+  .info-card-body { padding: 12px 16px; font-size: 13px; line-height: 1.6; }
   .info-card-body.scrollable-body { max-height: 220px; overflow-y: auto; white-space: pre-line; line-height: 1.65; }
   .wg-stack { display: flex; flex-direction: column; }
   .wg-top-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 10px; align-items: stretch; }
@@ -696,14 +696,18 @@ function typeChipClass(type) {
   if (t.includes('strategic') || t.includes('plan')) return 'type-chip strategic';
   return 'type-chip';
 }
+// Source amounts in the sheet are entered in Thai Baht; convert to USD for display.
+// Rate is an approximation (~33.5 THB/USD as of mid-2026) — update THB_PER_USD if needed.
+const THB_PER_USD = 33.5;
 function fmtBudget(v) {
-  if (!v || v === '-' || v === '' || v === '0') return v === '0' ? '0' : '-';
+  if (!v || v === '-' || v === '' || v === '0') return v === '0' ? '$0' : '-';
   const n = parseFloat(String(v).replace(/[^0-9.]/g,''));
   if (isNaN(n)) return v;
-  if (n >= 1e9) return (n/1e9).toFixed(2) + ' B';
-  if (n >= 1e6) return (n/1e6).toFixed(2) + ' M';
-  if (n >= 1e3) return n.toLocaleString('th-TH');
-  return String(n);
+  const usd = n / THB_PER_USD;
+  if (usd >= 1e9) return '$' + (usd/1e9).toFixed(2) + 'B';
+  if (usd >= 1e6) return '$' + (usd/1e6).toFixed(2) + 'M';
+  if (usd >= 1e3) return '$' + usd.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  return '$' + usd.toFixed(0);
 }
 function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
@@ -737,6 +741,17 @@ function pickField(row, exactKey, fallbackCandidates) {
    status/budget/etc. column per activity type. */
 function typeOf(row) {
   if (!row) return '';
+  // Primary signal: which type-specific name column actually has content. The sheet's
+  // "ประเภทกิจกรรมที่ต้องการบันทึก" dropdown can be filled in incorrectly (or left as a
+  // different value than where the data was actually typed), so trust the column the
+  // content really lives in first — e.g. a name entered under "ชื่อโครงการ RIF" is RIF,
+  // even if the dropdown was accidentally left on "Project".
+  const order = ['strategic','rif','mou','meeting','project'];
+  for (const t of order) {
+    const nameKey = TYPE_FIELD_MAP[t].name;
+    if (row[nameKey] && String(row[nameKey]).trim()) return t;
+  }
+  // Fallback: no type-specific name column has data — use the dropdown value itself.
   const tf = pickField(row, 'ประเภทกิจกรรมที่ต้องการบันทึก', ['ประเภทกิจกรรมที่ต้องการบันทึก','Type','ประเภท','Category','type']);
   const v = (tf ? (row[tf]||'') : '').toLowerCase();
   if (v.includes('strategic') || v.includes('ยุทธศาสตร์')) return 'strategic';
@@ -744,14 +759,6 @@ function typeOf(row) {
   if (v.includes('mou') || v.includes('บันทึกความเข้าใจ') || v.includes('บันทึกข้อตกลง')) return 'mou';
   if (v.includes('meeting') || v.includes('ประชุม')) return 'meeting';
   if (v.includes('project') || v.includes('โครงการ')) return 'project';
-  // Fallback for rows added directly in the sheet (not through the Form), where the
-  // "ประเภทกิจกรรมที่ต้องการบันทึก" dropdown value may be blank or worded differently:
-  // infer the type from whichever type-specific name column actually has data.
-  const order = ['strategic','rif','mou','meeting','project'];
-  for (const t of order) {
-    const nameKey = TYPE_FIELD_MAP[t].name;
-    if (row[nameKey] && String(row[nameKey]).trim()) return t;
-  }
   return '';
 }
 function getF(row, semantic) {
@@ -1016,11 +1023,11 @@ function renderSummary(rows) {
         </div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">💰 งบประมาณขับเคลื่อนแผน (${yearLabel})</div>
+        <div class="stat-label">💰 งบประมาณขับเคลื่อนแผน (${yearLabel}) · USD</div>
         <div class="stat-value gold">${fmtBudget(String(totalEst+totalAnn))}</div>
         <div class="stat-breakdown">
-          <div class="stat-breakdown-row"><span>🎯 งบคาดการณ์</span><b>${fmtBudget(String(totalEst))} บาท</b></div>
-          <div class="stat-breakdown-row"><span>📅 งบประจำปี</span><b>${fmtBudget(String(totalAnn))} บาท</b></div>
+          <div class="stat-breakdown-row"><span>🎯 งบคาดการณ์</span><b>${fmtBudget(String(totalEst))}</b></div>
+          <div class="stat-breakdown-row"><span>📅 งบประจำปี</span><b>${fmtBudget(String(totalAnn))}</b></div>
         </div>
       </div>
     </div>
@@ -1075,7 +1082,7 @@ function switchTab(btn, kindKey, panelId) {
 function renderKindGroupFixed(entries, kindKey) {
   let tabsHtml = `<div class="wg-tab-bar">`;
   entries.forEach((e, i) => {
-    tabsHtml += `<button class="wg-tab${i===0?' active':''}" onclick="switchTab(this,'${kindKey}','wg-panel-${kindKey}-${i}')">${escHtml(e.name)} <span style="font-size:11px;opacity:0.6">(${e.rows.length})</span></button>`;
+    tabsHtml += `<button class="wg-tab${i===0?' active':''}" onclick="switchTab(this,'${kindKey}','wg-panel-${kindKey}-${i}')">${escHtml(e.name)}</button>`;
   });
   tabsHtml += `</div>`;
   let contentHtml = '';
@@ -1087,6 +1094,16 @@ function renderKindGroupFixed(entries, kindKey) {
 }
 
 function renderWGDetail(rows, wgName) {
+  // Rows are in sheet order, so the last non-blank value for a field is the most
+  // recently entered one — use this everywhere "always visible" info should stay
+  // current as new rows are added/edited in the sheet.
+  function latestNonBlank(list, field) {
+    if (!field) return '';
+    for (let i = list.length - 1; i >= 0; i--) {
+      if (list[i][field] && String(list[i][field]).trim()) return list[i][field];
+    }
+    return '';
+  }
   /* ── 1. ข้อมูลพื้นฐาน (always visible) ── */
   const sectorField = pickField(rows[0], 'สาขาความร่วมมือ / คณะทำงาน', ['สาขาความร่วมมือ / คณะทำงาน','Working_Group','WorkingGroup','สาขาความร่วมมือ','สาขา','Sector']);
   const taskforceField = pickField(rows[0], 'คณะทำงาน (ชื่อเต็ม)', ['คณะทำงาน (ชื่อเต็ม)','Taskforce','คณะทำงาน','Working_Team','Committee']);
@@ -1103,8 +1120,7 @@ function renderWGDetail(rows, wgName) {
   ];
   let basicInfoHtml = `<div class="info-card"><div class="info-card-header"><div class="info-card-icon">ℹ</div><div class="info-card-title">ข้อมูลพื้นฐาน</div></div><div class="info-card-body">`;
   basicSpecs.forEach(spec => {
-    let val = '';
-    if (spec.field) { const vals = [...new Set(rows.map(r => r[spec.field]).filter(Boolean))].slice(0, 3); val = vals.join(', '); }
+    let val = spec.field ? latestNonBlank(rows, spec.field) : '';
     if (!val && spec.fallback) val = spec.fallback;
     basicInfoHtml += `<div class="info-row"><span class="info-row-label">${spec.icon} ${spec.label}</span><span class="info-row-value">${escHtml(val) || '<span style="color:var(--text-muted)">ไม่มีข้อมูล</span>'}</span></div>`;
   });
@@ -1118,14 +1134,13 @@ function renderWGDetail(rows, wgName) {
   const meetings = rows.filter(r => typeOf(r) === 'meeting' && hasData(r));
   const hasNoType = (strats.length+projects.length+rifs.length+mous.length+meetings.length) === 0;
 
-  /* ── 2. สรุปแผนยุทธศาสตร์ประจำสาขา (always visible) ── */
+  /* ── 2. สรุปแผนยุทธศาสตร์ประจำสาขา (always visible — use the most recently added plan) ── */
   let stratSummaryHtml = `<div class="info-card"><div class="info-card-header"><div class="info-card-icon">🎯</div><div class="info-card-title">สรุปแผนยุทธศาสตร์ประจำสาขา</div></div><div class="info-card-body">`;
   if (strats.length) {
-    const s = strats[0]; const m = TYPE_FIELD_MAP.strategic;
+    const s = strats[strats.length - 1]; const m = TYPE_FIELD_MAP.strategic;
     stratSummaryHtml += `<div class="info-row"><span class="info-row-label">📌 ชื่อแผน</span><span class="info-row-value">${escHtml(s[m.name])||'ไม่มีข้อมูล'}</span></div>`;
     stratSummaryHtml += `<div class="info-row"><span class="info-row-label">📝 ภาพรวมของแผน</span><span class="info-row-value">${escHtml(s[m.overview])||'ไม่มีข้อมูล'}</span></div>`;
-    stratSummaryHtml += `<div class="info-row"><span class="info-row-label">🌏 ความเกี่ยวข้องกับ GMS 2030</span><span class="info-row-value">${escHtml(s[m.gms2030])||'ไม่มีข้อมูล'}</span></div>`;
-    stratSummaryHtml += `<div class="info-row"><span class="info-row-label">🇹🇭 ความเกี่ยวข้องกับแผนชาติ</span><span class="info-row-value">${escHtml(s[m.national])||'ไม่มีข้อมูล'}</span></div>`;
+    stratSummaryHtml += `<div class="info-row"><span class="info-row-label">📌 หลักการสำคัญ</span><span class="info-row-value">${escHtml(s[m.gms2030])||'ไม่มีข้อมูล'}</span></div>`;
     if (s[m.status]) stratSummaryHtml += `<div class="info-row"><span class="info-row-label">สถานะ</span><span class="info-row-value">${sBadge(s[m.status])}</span></div>`;
   } else {
     stratSummaryHtml += `<div class="info-row"><span class="info-row-value" style="color:var(--text-muted)">ไม่มีข้อมูล</span></div>`;
@@ -1134,15 +1149,14 @@ function renderWGDetail(rows, wgName) {
 
   /* ── 3. ความคืบหน้าล่าสุด (always visible) ── */
   const latestField = pickField(rows[0], 'ความคืบหน้าล่าสุด', ['ความคืบหน้าล่าสุด','Latest_Update','Latest_Progress']);
-  const latestVals = latestField ? rows.map(r=>r[latestField]).filter(Boolean) : [];
-  const latestText = latestVals.length ? latestVals[latestVals.length-1] : '';
+  const latestText = latestNonBlank(rows, latestField);
   const latestHtml = `<div class="info-card"><div class="info-card-header"><div class="info-card-icon">🟣</div><div class="info-card-title">ความคืบหน้าล่าสุด</div></div><div class="info-card-body scrollable-body">${escHtml(latestText) || '<span style="color:var(--text-muted)">ไม่มีข้อมูล</span>'}</div></div>`;
 
-  /* ── 4. ข้อวิเคราะห์หน่วยงาน (always visible) ── */
+  /* ── 4. ข้อวิเคราะห์หน่วยงาน (always visible — most recent strength/weakness entry) ── */
   const strengthField = pickField(rows[0], 'ข้อวิเคราะห์หน่วยงาน — จุดแข็ง', ['ข้อวิเคราะห์หน่วยงาน — จุดแข็ง','Strength','จุดแข็ง']);
   const weaknessField = pickField(rows[0], 'ข้อวิเคราะห์หน่วยงาน — จุดอ่อน', ['ข้อวิเคราะห์หน่วยงาน — จุดอ่อน','Weakness','จุดอ่อน']);
-  const sVal = strengthField ? [...new Set(rows.map(r=>r[strengthField]).filter(Boolean))].join(' / ') : '';
-  const wVal = weaknessField ? [...new Set(rows.map(r=>r[weaknessField]).filter(Boolean))].join(' / ') : '';
+  const sVal = latestNonBlank(rows, strengthField);
+  const wVal = latestNonBlank(rows, weaknessField);
   let orgAnalysisHtml = `<div class="info-card"><div class="info-card-header"><div class="info-card-icon">📊</div><div class="info-card-title">ข้อวิเคราะห์หน่วยงาน</div></div><div class="info-card-body scrollable-body">`;
   if (sVal || wVal) {
     orgAnalysisHtml += `<div class="swot-grid">
@@ -1154,10 +1168,9 @@ function renderWGDetail(rows, wgName) {
   }
   orgAnalysisHtml += `</div></div>`;
 
-  /* ── 5. ท่าทีของภาคเอกชน/ประชาสังคม/ประชาชน (always visible) ── */
+  /* ── 5. ท่าทีของภาคเอกชน/ประชาสังคม/ประชาชน (always visible — latest entry) ── */
   const sentimentField = pickField(rows[0], 'ท่าทีของภาคเอกชน/ประชาสังคม/ประชาชน', ['ท่าทีของภาคเอกชน/ประชาสังคม/ประชาชน','Public_Sentiment','Sentiment','ท่าที']);
-  const sentVals = sentimentField ? rows.map(r=>r[sentimentField]).filter(Boolean) : [];
-  const sentText = sentVals.length ? [...new Set(sentVals)].join('\n') : '';
+  const sentText = latestNonBlank(rows, sentimentField);
   const sentimentHtml = `<div class="info-card"><div class="info-card-header"><div class="info-card-icon">🗣</div><div class="info-card-title">ท่าทีของภาคเอกชน/ประชาสังคม/ประชาชน</div></div><div class="info-card-body scrollable-body">${escHtml(sentText) || '<span style="color:var(--text-muted)">ไม่มีข้อมูล</span>'}</div></div>`;
 
   /* ── 6. กิจกรรมอื่นๆ ที่เกี่ยวข้อง: name+status list, click → modal ── */
@@ -1171,7 +1184,7 @@ function renderWGDetail(rows, wgName) {
       fields.push(['Outcome', val('outcome')]);
       fields.push(['Impact', val('impact')]);
       fields.push(['KPI', val('kpi')]);
-      fields.push(['งบประมาณ (THB)', formatBudgetPair(budgetOf(r))]);
+      fields.push(['งบประมาณ (USD)', formatBudgetPair(budgetOf(r))]);
       fields.push(['ผู้รับผิดชอบ', val('responsible')]);
       fields.push(['ประเทศที่เกี่ยวข้อง', val('country')]);
     } else if (type === 'rif') {
@@ -1182,7 +1195,7 @@ function renderWGDetail(rows, wgName) {
       fields.push(['Impact', val('impact')]);
       fields.push(['KPI', val('kpi')]);
       fields.push(['Baseline/Targets', val('baseline')]);
-      fields.push(['งบประมาณ', formatBudgetPair(budgetOf(r))]);
+      fields.push(['งบประมาณ (USD)', formatBudgetPair(budgetOf(r))]);
       fields.push(['ผู้รับผิดชอบ', val('responsible')]);
       fields.push(['ประเทศที่เกี่ยวข้อง', val('country')]);
     } else if (type === 'mou') {
@@ -1291,13 +1304,12 @@ function closeItemModal() {
 /* ════════════════════ SECTION 3: PROGRESS ════════════════════ */
 function renderProgress(rows) {
   const container = document.getElementById('progressContent');
-  const typeField = pickField(rows[0], 'ประเภทกิจกรรมที่ต้องการบันทึก', ['ประเภทกิจกรรมที่ต้องการบันทึก','Type','ประเภท','Category']);
   const wgField = pickField(rows[0], 'สาขาความร่วมมือ / คณะทำงาน', ['สาขาความร่วมมือ / คณะทำงาน','Working_Group','WorkingGroup','คณะทำงาน','WG','สาขา']);
   const years = getAvailableYears();
   const validRows = rows.filter(hasData);
 
   const wgs = [...new Set(validRows.map(r => wgField ? r[wgField] : '').filter(Boolean))];
-  const types = [...new Set(validRows.map(r => typeField ? r[typeField] : '').filter(Boolean))];
+  const types = [...new Set(validRows.map(r => TYPE_LABELS[typeOf(r)]).filter(Boolean))];
   const statuses = [...new Set(validRows.map(r => statusOf(r)).filter(Boolean))];
 
   container.innerHTML = `
@@ -1328,7 +1340,6 @@ function applyF() {
   const typeVal = document.getElementById('fType')?.value || '';
   const statusVal = document.getElementById('fStatus')?.value || '';
 
-  const typeField = pickField(allRows[0], 'ประเภทกิจกรรมที่ต้องการบันทึก', ['ประเภทกิจกรรมที่ต้องการบันทึก','Type','ประเภท','Category']);
   const wgField = pickField(allRows[0], 'สาขาความร่วมมือ / คณะทำงาน', ['สาขาความร่วมมือ / คณะทำงาน','Working_Group','WorkingGroup','คณะทำงาน','WG','สาขา']);
   const yearField = getYearField();
 
@@ -1337,7 +1348,7 @@ function applyF() {
   let filtered = base.filter(r => {
     if (!hasData(r)) return false; // แสดงเฉพาะรายการที่มีข้อมูลจริง
     if (wgVal && wgField && r[wgField] !== wgVal) return false;
-    if (typeVal && typeField && r[typeField] !== typeVal) return false;
+    if (typeVal && TYPE_LABELS[typeOf(r)] !== typeVal) return false;
     if (statusVal && statusOf(r) !== statusVal) return false;
     return true;
   });
@@ -1351,17 +1362,18 @@ function applyF() {
     let html = `<div class="prog-table-wrap"><table class="prog-table"><thead><tr><th>#</th>`;
     if (wgField) html += `<th>${escHtml(wgField)}</th>`;
     html += `<th>ชื่อรายการ (โครงการ / RIF / MOU / การประชุม)</th>`;
-    if (typeField) html += `<th>${escHtml(typeField)}</th>`;
-    html += `<th>สถานะปัจจุบัน</th><th>งบประมาณ (บาท)</th><th>ความคืบหน้า</th></tr></thead><tbody>`;
+    html += `<th>ประเภทกิจกรรมที่ต้องการบันทึก</th>`;
+    html += `<th>สถานะปัจจุบัน</th><th>งบประมาณ (USD)</th><th>ความคืบหน้า</th></tr></thead><tbody>`;
     filtered.forEach((r, i) => {
       const st = statusOf(r);
       const pct = statusToProgress(st);
       const itemName = resolveItemName(r) || 'ไม่มีข้อมูล';
+      const typeLabel = TYPE_LABELS[typeOf(r)] || '-';
       const b = budgetOf(r);
       html += `<tr><td style="color:var(--text-muted);font-size:12px">${i+1}</td>`;
       if (wgField) html += `<td style="font-size:13px">${escHtml(r[wgField])||'-'}</td>`;
       html += `<td style="font-size:13px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(itemName)}">${escHtml(itemName)}</td>`;
-      if (typeField) html += `<td><span class="${typeChipClass(r[typeField])}">${escHtml(r[typeField])||'-'}</span></td>`;
+      html += `<td><span class="${typeChipClass(typeLabel)}">${escHtml(typeLabel)}</span></td>`;
       html += `<td>${sBadge(st)}</td>`;
       html += `<td style="font-size:12px;color:var(--text-muted)">${escHtml(formatBudgetPair(b))}</td>`;
       html += `<td><div style="display:flex;align-items:center;gap:6px"><div class="mini-progress" style="width:90px"><div class="mini-progress-fill" style="width:${pct}%"></div></div><span style="font-size:12px;font-weight:600;color:var(--purple-700)">${pct}%</span></div></td></tr>`;
