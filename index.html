@@ -593,6 +593,7 @@ let dataSource = '';
 let currentYear1 = 'ทั้งหมด';
 let currentYear2 = 'ทั้งหมด';
 let currentYear4 = 'ทั้งหมด';
+let currentWG4 = '';
 
 /* ════════════════════ REAL SHEET COLUMN MAP ════════════════════
    The source is a Google Form response sheet with branching sections
@@ -1009,7 +1010,16 @@ function yearDropdownHtml(id, onchangeFn, currentVal) {
 }
 function setYear1(y) { currentYear1 = y; renderSummary(getYearFilteredRows(currentYear1)); }
 function setYear2(y) { currentYear2 = y; renderWorkingGroups(getYearFilteredRows(currentYear2)); }
-function setYear4(y) { currentYear4 = y; renderDocuments(getYearFilteredRows(currentYear4)); }
+function setYear4(y) { currentYear4 = y; renderDocuments(getSection4Rows()); }
+function setWG4(w) { currentWG4 = w; renderDocuments(getSection4Rows()); }
+function getSection4Rows() {
+  let rows = getYearFilteredRows(currentYear4);
+  if (currentWG4) {
+    const wgField = pickField(rows[0], 'สาขาความร่วมมือ / คณะทำงาน', ['สาขาความร่วมมือ / คณะทำงาน','Working_Group','WorkingGroup','คณะทำงาน','WG','สาขา']);
+    if (wgField) rows = rows.filter(r => r[wgField] === currentWG4);
+  }
+  return rows;
+}
 function getYearFilteredRows(year) {
   if (year === 'ทั้งหมด') return allRows;
   const yf = getYearField();
@@ -1033,7 +1043,7 @@ function renderAll() {
   renderSummary(getYearFilteredRows(currentYear1));
   renderWorkingGroups(getYearFilteredRows(currentYear2));
   renderProgress(allRows);
-  renderDocuments(getYearFilteredRows(currentYear4));
+  renderDocuments(getSection4Rows());
 }
 
 /* ════════════════════ SECTION 1: SUMMARY ════════════════════ */
@@ -1482,6 +1492,9 @@ function renderDocuments(rows) {
   const container = document.getElementById('docContent');
   const validRows = rows.filter(hasData);
 
+  const wgField = pickField(allRows[0], 'สาขาความร่วมมือ / คณะทำงาน', ['สาขาความร่วมมือ / คณะทำงาน','Working_Group','WorkingGroup','คณะทำงาน','WG','สาขา']);
+  const wgOptions = wgField ? [...new Set(allRows.filter(hasData).map(r => r[wgField]).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'th')) : [];
+
   const categories = {
     'Strategic Plan': validRows.filter(r => typeOf(r)==='strategic'),
     'Project': validRows.filter(r => typeOf(r)==='project'),
@@ -1492,6 +1505,15 @@ function renderDocuments(rows) {
   const catEmojis = { 'Strategic Plan':'🎯', 'Project':'📌', 'RIF':'🔬', 'MOU':'📝', 'Meeting':'🤝' };
 
   let html = yearDropdownHtml('yearSelect4', 'setYear4', currentYear4);
+  if (wgField && wgOptions.length) {
+    html += `<div class="year-dropdown-wrap">
+      <span class="year-dropdown-label">🏛 กรองตามคณะทำงาน:</span>
+      <select class="year-dropdown-select" id="wgSelect4" onchange="setWG4(this.value)">
+        <option value="" ${currentWG4===''?'selected':''}>ทุกคณะทำงาน</option>
+        ${wgOptions.map(w => `<option value="${escHtml(w)}" ${w===currentWG4?'selected':''}>${escHtml(w)}</option>`).join('')}
+      </select>
+    </div>`;
+  }
   html += '<div class="folder-grid">';
   Object.keys(categories).forEach((cat, idx) => {
     const items = categories[cat];
