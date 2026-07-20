@@ -712,6 +712,16 @@ function fmtBudget(n) {
   return '$' + n.toFixed(0);
 }
 function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+// Working-group names typed into the sheet can have small spacing differences from
+// the fixed SECTOR_LIST/ISSUE_LIST entries (an extra/missing space around "และ", etc.)
+// that would break a plain substring check. Strip all whitespace before comparing so
+// those differences don't cause a sector/issue to silently show no data.
+function normalizeLoose(s) { return String(s||'').normalize('NFC').replace(/\s+/g, '').trim(); }
+function looseMatch(a, b) {
+  const na = normalizeLoose(a), nb = normalizeLoose(b);
+  if (!na || !nb) return false;
+  return na.includes(nb) || nb.includes(na);
+}
 
 /* ════════════════════ FIELD LOOKUP HELPERS ════════════════════ */
 function findField(row, candidates) {
@@ -1055,8 +1065,8 @@ function renderSummary(rows) {
   rows.forEach(r => { if (wgField && r[wgField]) wgNames.add(r[wgField]); });
   let sectorCount = 0, issueCount = 0, otherCount = 0;
   wgNames.forEach(w => {
-    if (SECTOR_LIST.some(s => w.includes(s) || s.includes(w))) sectorCount++;
-    else if (ISSUE_LIST.some(s => w.includes(s) || s.includes(w))) issueCount++;
+    if (SECTOR_LIST.some(s => looseMatch(w, s))) sectorCount++;
+    else if (ISSUE_LIST.some(s => looseMatch(w, s))) issueCount++;
     else otherCount++;
   });
 
@@ -1118,7 +1128,7 @@ function renderWorkingGroups(rows) {
 
   function findGroupRows(fixedName) {
     if (groups[fixedName]) return groups[fixedName];
-    const key = Object.keys(groups).find(w => w.includes(fixedName) || fixedName.includes(w));
+    const key = Object.keys(groups).find(w => looseMatch(w, fixedName));
     return key ? groups[key] : [];
   }
 
